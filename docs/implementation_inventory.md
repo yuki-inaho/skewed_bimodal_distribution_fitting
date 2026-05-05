@@ -44,7 +44,28 @@
 
 ベースラインの skew-normal は random generator にのみ存在 (`skewnorm`) し、専用フィッタは持ちません。フィッタ族の skew は `adn`/`bsn_fs`/`ntpn` がカバーします。
 
-## 3. 検証済みコマンド
+## 3. 配布物と依存スコープ
+
+`pyproject.toml` 上の依存は次のように分離しています。`pip install` 時に必要な extras を指定してください。
+
+| extras | 含まれるパッケージ | 想定ユースケース |
+| --- | --- | --- |
+| (none, core) | `numpy`, `scipy` | `from bimodal_skewfit import fit_model, fit_all, FitResult` で密度フィッタだけ使う |
+| `report` | core + `pandas`, `matplotlib` | `experiment.py` / `random_search.py` / `plotting.py` / CLI を使う |
+| `notebook` | report + `nbformat`, `nbclient`, `ipython`, `ipykernel` | `scripts/build_report_notebook.py --execute` を使う |
+| `dev` | notebook + `pytest`, `ruff`, `ty`, `radon` | テスト・lint・型チェック・ベンチを含む全機能 |
+
+Hatchling の `[tool.hatch.build.targets.sdist]` で `outputs/`, `notebooks/`, `examples/`, `temp/`, `dist/`, `docs/workdoc_*` を sdist から除外しています。wheel には `src/bimodal_skewfit` のみが含まれます。
+
+ビルド・配布物検証のコマンド:
+
+```bash
+just build              # uv build → dist/*.whl と dist/*.tar.gz を生成
+just package-smoke      # 隔離環境で wheel と sdist をインストールし core 依存だけで smoke test
+just release-check      # quality + build + package-smoke を一括実行
+```
+
+## 4. 検証済みコマンド
 
 ```bash
 uv run ruff format .
@@ -63,17 +84,17 @@ uv run python scripts/build_report_notebook.py --execute
 小さい n=200〜400 では BLAS thread spawn overhead が並列利得を超えるため、絞った方が
 2〜3 倍速くなります。直接 `uv run pytest` を実行する場合は手動で同じ env を export してください。
 
-## 4. 品質結果
+## 5. 品質結果
 
 | 観点 | 結果 |
 | --- | --- |
-| pytest | 51 passed (5 + 2 + 2 + 30 + 12) |
+| pytest | 54 passed (5 + 2 + 2 + 31 + 14) |
 | Ruff format / check | passed (rules: B, C4, E, F, I, RET, SIM, UP, ANN, N, RUF, PERF, PIE, TID, ARG, NPY) |
 | ty static analysis | passed |
-| radon cyclomatic complexity | average A (1.957)、93 blocks、最大 B (CC=7) |
+| radon cyclomatic complexity | average A (1.97)、93 blocks、最大 B (CC=7) |
 | radon maintainability index | all files A |
 
-## 5. 設計上の注意
+## 6. 設計上の注意
 
 - 密度関数は stateless かつ副作用なし。Rust などへの移植時に kernel 層を最初に純関数として写し、driver 層 (最適化アルゴリズム) を後で差し替える順序で進められます。
 - `DistributionSpec.__post_init__` で `num_parameters == len(param_names)` を検証しており、登録ミスを起動時に検出します。

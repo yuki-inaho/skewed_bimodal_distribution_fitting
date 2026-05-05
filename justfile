@@ -50,6 +50,22 @@ notebook:
 # Full validation path.
 quality: format lint typecheck test radon run random notebook
 
+# Build wheel and source distribution into dist/.
+build:
+    rm -rf dist
+    uv build
+
+# Install the freshly built wheel and sdist into isolated envs and run the
+# core-deps-only smoke test. Verifies that the public API works without any
+# of the [report] or [notebook] extras leaking into the wheel. The Python
+# version is pinned so the test does not fall back to the system interpreter.
+package-smoke:
+    {{env}} uv run --isolated --no-project --python 3.13 --with dist/*.whl python tests/smoke_installed_package.py
+    {{env}} uv run --isolated --no-project --python 3.13 --with dist/*.tar.gz python tests/smoke_installed_package.py
+
+# Release-readiness path: full quality gate plus build and isolated smoke test.
+release-check: quality build package-smoke
+
 # Remove generated quality caches. Source files and generated reports remain untouched.
 clean-caches:
     rm -rf .pytest_cache .ruff_cache .ty

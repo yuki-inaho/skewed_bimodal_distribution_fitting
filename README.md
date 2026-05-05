@@ -26,12 +26,34 @@
 
 形状モデル (`abn` / `adn` / `bsn_fs` / `ntpn`) は L-BFGS-B 多項共通ドライバで推定します。詳細は [§8 形状モデル共通の直接最尤推定](docs/theory_derivations_bimodal_skewfit.md#8-形状モデル共通の直接最尤推定) を参照してください。
 
-## セットアップ
+## インストール
+
+`uv pip` または `pip` でインストールできます。スコープ別に extras を選んでください。
 
 ```bash
-uv venv
+# (a) ライブラリとして fit 関数だけ使う (core: numpy, scipy のみ)
+uv pip install .
+
+# (b) 固定シナリオ実験 / ランダム探索 / 可視化も使う
+uv pip install '.[report]'
+
+# (c) Notebook 生成 (build_report_notebook.py) も使う
+uv pip install '.[notebook]'
+
+# (d) 開発 (テスト・lint・型チェック・ベンチ)
 uv sync --extra dev
 ```
+
+`bimodal-skewfit` / `bimodal-skewfit-random` の console script、および
+`scripts/run_experiment.py` / `scripts/run_random_search.py` は **pandas と matplotlib に依存**するため、`[report]` 以上の extras が必要です。最小ライブラリ用途 `(a)` だけでは `from bimodal_skewfit.experiment import ...` 等が `ModuleNotFoundError` になります (これは Python の標準挙動で、依存分離の意図された結果です)。
+
+公開 API は `__init__.py` から再エクスポートしている次の要素に固定しています:
+
+```python
+from bimodal_skewfit import FitResult, fit_model, fit_all, list_models, __version__
+```
+
+`fit_model` / `fit_all` の戻り値 (`FitResult`) には `.logpdf(x)` / `.pdf(x)` メソッドがあるため、密度評価のために `distributions` 内部関数を直接呼ぶ必要はありません。
 
 ## 基本実行
 
@@ -110,7 +132,7 @@ just quality
 | `outputs/random_quality_report.md` | ランダム探索における最高品質フィットとファミリ別ベスト |
 | `outputs/random_search_best_fit.png` | ランダム探索で最高品質だった試行の可視化 |
 | `outputs/validation_log.md` | 品質ゲートの実検証ログ |
-| `notebooks/fitting_report.ipynb` | 結果を確認する実行済み Notebook |
+| `examples/fitting_report.ipynb` | 結果を確認する実行済み Notebook |
 
 ## モード数集計の解釈
 
