@@ -1,9 +1,37 @@
 [project]
 name = "bimodal-skewfit"
-version = "0.2.0"
-description = "Fitting skewed, bimodal, and K=2 Gaussian-mixture distributions in a uv environment."
+version = "0.3.0"
+description = "Maximum-likelihood fitting for skewed, bimodal, and K=2 Gaussian-mixture univariate distributions."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "yuki-inaho", email = "yoshikawa@inaho.co" },
+]
+maintainers = [
+    { name = "yuki-inaho", email = "yoshikawa@inaho.co" },
+]
+keywords = [
+    "statistics",
+    "bimodal-distribution",
+    "skewed-distribution",
+    "gaussian-mixture",
+    "maximum-likelihood",
+    "density-estimation",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Typing :: Typed",
+]
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",
@@ -14,6 +42,11 @@ dependencies = [
     "ipython>=8.0",
     "ipykernel>=6.29",
 ]
+
+[project.urls]
+Homepage = "https://github.com/yuki-inaho/skew_bimodal_distribution_fitting"
+Repository = "https://github.com/yuki-inaho/skew_bimodal_distribution_fitting"
+Issues = "https://github.com/yuki-inaho/skew_bimodal_distribution_fitting/issues"
 
 [project.optional-dependencies]
 dev = [
