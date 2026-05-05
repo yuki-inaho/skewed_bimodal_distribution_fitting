@@ -1,6 +1,6 @@
 # bimodal-skewfit
 
-`bimodal-skewfit` は、二峰性・単峰性・歪度を持つ一次元分布に対して候補分布を最尤推定し、AIC/BIC、グリッド上のモード数、既知生成密度との ISE で比較するための `uv` 前提の Python 実装です。論文 4 本 (ABN, ADN, BSN-FS, NTPN) の密度カーネルを統一記法で実装し、合成データに対する自動回帰テスト 53 件で論文式との対応を担保しています。
+単峰・二峰・歪みを持つ 1 次元データに、6 モデル (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットして AIC・BIC・モード数・ISE で並べる Python ライブラリ。形状モデル 4 本は近年の論文 (Mathematics 2026 / Symmetry 2025 / arXiv 2015 / AIMS Mathematics 2026) の密度を統一記法で実装し、特殊ケースと数値スナップショットを 54 件のテストで自動検証しています。
 
 ## ドキュメント
 
