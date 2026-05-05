@@ -1,0 +1,47 @@
+# Python bytecode and build artifacts
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+sdist/
+*.egg-info/
+.eggs/
+
+# Test / lint / type-check caches
+.pytest_cache/
+.ruff_cache/
+.ty/
+.mypy_cache/
+.dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+**/__pycache__
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific scratch
+temp/
+outputs/
+.env
+.envrc

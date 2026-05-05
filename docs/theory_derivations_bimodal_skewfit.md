@@ -1,0 +1,1790 @@
+# 二峰・歪分布フィット手法の理論整理
+
+**対象実装:** `bimodal_skewed_uv_v4`  
+**対象モデル:** Normal, Gaussian mixture `K=2`, ABN, ADN, BSN-FS, NTPN  
+**目的:** 合成データまたは実データに対し、単峰・二峰・歪みを持つ候補分布を最尤推定し、AIC/BIC、密度重ね合わせ、格子上のモード数、ISE で比較するための理論仕様を、実装と一対一対応する形で整理する。
+
+---
+
+## 0. 本文書の立場
+
+本ドキュメントは、実装コードを読まなくても各モデルの数式、推定対象、最適化目的、更新式、特殊ケース、サンプリング手順、評価指標が理解できることを目的とします。
+
+論文中には同じ記号が別の意味で用いられる箇所があるため、本ドキュメントでは記法を統一します。特に、各モデルの標準化変数は常に
+
+\[
+z_i = \frac{y_i - \mu}{\sigma}, \qquad \mu \in \mathbb{R}, \quad \sigma > 0
+\]
+
+と定義します。AIMS 論文では尺度を \(\beta\) と書きますが、本実装では `scale` に対応するため、本文では一貫して \(\sigma\) を使います。
+
+本ドキュメントの導出は、`src/bimodal_skewfit/distributions.py`, `gmm_fit.py`, `shape_fit.py`, `random_generators.py`, `evaluate.py`, `registry.py` の実装仕様に対応します。論文の全機能、例えば回帰モデル、観測情報行列、信頼性関数、分位点関数、全てのモーメント公式を完全再現するものではありません。目的は、分布フィット実験で使用している密度関数と推定手順を理論的に自己完結に定義することです。
+
+---
+
+## 1. 統一記法
+
+### 1.1 基本記法
+
+観測データを
+
+\[
+y_1,\ldots,y_n \in \mathbb{R}
+\]
+
+とします。位置尺度変換を持つモデルでは、標準化変数を
+
+\[
+z_i = \frac{y_i - \mu}{\sigma}
+\]
+
+と置きます。標準正規密度と分布関数を
+
+\[
+\phi(x)=\frac{1}{\sqrt{2\pi}}\exp\left(-\frac{x^2}{2}\right),
+\qquad
+\Phi(x)=\int_{-\infty}^{x}\phi(t)\,dt
+\]
+
+とします。
+
+標準形の密度を \(f_Z(z;\eta)\) と書くと、位置尺度拡張された観測値 \(Y=\mu+\sigma Z\) の密度は
+
+\[
+f_Y(y;\mu,\sigma,\eta)
+=\frac{1}{\sigma} f_Z\left(\frac{y-\mu}{\sigma};\eta\right)
+\]
+
+です。ここで \(\eta\) は各分布固有の形状パラメータです。
+
+### 1.2 尤度、負の対数尤度、情報量基準
+
+パラメータを \(\theta\) とまとめます。独立同分布を仮定した尤度、対数尤度、負の対数尤度は
+
+\[
+L(\theta)=\prod_{i=1}^n f_Y(y_i;\theta),
+\]
+
+\[
+\ell(\theta)=\sum_{i=1}^{n}\log f_Y(y_i;\theta),
+\]
+
+\[
+J(\theta)=-\ell(\theta)
+\]
+
+です。本実装は全モデルで \(J(\theta)\) を最小化します。
+
+パラメータ数を \(k\) とすると、AIC と BIC は
+
+\[
+\mathrm{AIC}=2k+2J(\hat\theta),
+\]
+
+\[
+\mathrm{BIC}=k\log n+2J(\hat\theta)
+\]
+
+です。実装では BIC の小さい順に候補モデルを並べます。
+
+### 1.3 数値安定性のための表現
+
+実装では、密度を直接足し合わせず、対数密度と `logsumexp` を用います。例えば
+
+\[
+\log(a+b)=\operatorname{logsumexp}(\log a,\log b)
+\]
+
+で計算します。これは二つの成分密度のうち片方が非常に小さい場合の桁落ちを避けるためです。
+
+また、\(\log\Phi(t)\) は安定な正規分布関数の対数評価で計算します。これは \(t\ll 0\) で \(\Phi(t)\) が数値的に 0 に丸められる問題を避けるためです。
+
+---
+
+## 2. Normal baseline
+
+### 2.1 定義
+
+標準正規を位置尺度拡張した通常の正規分布を、比較用の基準モデルとして使います。
+
+\[
+Y\sim N(\mu,\sigma^2),
+\qquad
+f_Y(y;\mu,\sigma)=\frac{1}{\sigma}\phi\left(\frac{y-\mu}{\sigma}\right).
+\]
+
+パラメータ空間は
+
+\[
+\mu\in\mathbb{R},\qquad \sigma>0
+\]
+
+です。
+
+### 2.2 対数尤度
+
+\[
+\ell(\mu,\sigma)
+=\sum_{i=1}^n\left[-\log\sigma-\frac{1}{2}\log(2\pi)-\frac{1}{2}\left(\frac{y_i-\mu}{\sigma}\right)^2\right].
+\]
+
+すなわち
+
+\[
+\ell(\mu,\sigma)
+= -n\log\sigma-\frac{n}{2}\log(2\pi)
+-\frac{1}{2\sigma^2}\sum_{i=1}^{n}(y_i-\mu)^2.
+\]
+
+### 2.3 最尤推定量の導出
+
+\(\mu\) について微分します。
+
+\[
+\frac{\partial \ell}{\partial \mu}
+=\frac{1}{\sigma^2}\sum_{i=1}^n(y_i-\mu).
+\]
+
+これを 0 と置くと、
+
+\[
+\hat\mu=\bar y=\frac{1}{n}\sum_{i=1}^{n}y_i.
+\]
+
+次に \(\sigma^2=v\) と置くと、
+
+\[
+\ell(\hat\mu,v)
+=-\frac{n}{2}\log v-\frac{n}{2}\log(2\pi)
+-\frac{1}{2v}\sum_{i=1}^{n}(y_i-\bar y)^2.
+\]
+
+\(v\) で微分します。
+
+\[
+\frac{\partial \ell}{\partial v}
+=-\frac{n}{2v}+\frac{1}{2v^2}\sum_{i=1}^{n}(y_i-\bar y)^2.
+\]
+
+0 と置けば、
+
+\[
+\hat\sigma^2=\frac{1}{n}\sum_{i=1}^{n}(y_i-\bar y)^2.
+\]
+
+これは不偏分散ではなく最尤推定量であるため、分母は \(n\) です。
+
+### 2.4 実装対応
+
+`fit_normal` は上記の閉形式解を用います。数値上 \(\hat\sigma\) が 0 に近すぎる場合は、最小値 `1e-9` で下限を設けます。
+
+---
+
+## 3. 二成分 Gaussian mixture, \(K=2\)
+
+### 3.1 定義
+
+二成分正規混合を
+
+\[
+f_Y(y;\theta)
+= \pi\,\phi_{\mu_1,\sigma_1}(y)
++(1-\pi)\,\phi_{\mu_2,\sigma_2}(y)
+\]
+
+と定義します。ただし
+
+\[
+\phi_{m,s}(y)=\frac{1}{s}\phi\left(\frac{y-m}{s}\right),
+\]
+
+\[
+0<\pi<1,
+\qquad
+\sigma_1>0,
+\qquad
+\sigma_2>0.
+\]
+
+パラメータは
+
+\[
+\theta=(\pi,\mu_1,\sigma_1,\mu_2,\sigma_2)
+\]
+
+です。
+
+### 3.2 潜在変数表現
+
+各観測 \(y_i\) に潜在ラベル
+
+\[
+C_i\in\{1,2\}
+\]
+
+を導入します。事前確率は
+
+\[
+P(C_i=1)=\pi,
+\qquad
+P(C_i=2)=1-\pi.
+\]
+
+条件付き分布は
+
+\[
+Y_i\mid C_i=1\sim N(\mu_1,\sigma_1^2),
+\qquad
+Y_i\mid C_i=2\sim N(\mu_2,\sigma_2^2).
+\]
+
+### 3.3 完全データ対数尤度
+
+指示変数
+
+\[
+Z_{i1}=\mathbf{1}\{C_i=1\},
+\qquad
+Z_{i2}=\mathbf{1}\{C_i=2\}
+\]
+
+を用いると、完全データ対数尤度は
+
+\[
+\ell_c(\theta)
+=\sum_{i=1}^{n}\sum_{k=1}^{2}Z_{ik}\left[\log\pi_k+
+\log\phi_{\mu_k,\sigma_k}(y_i)\right]
+\]
+
+です。ただし
+
+\[
+\pi_1=\pi,
+\qquad
+\pi_2=1-\pi.
+\]
+
+### 3.4 E-step
+
+現在の推定値を \(\theta^{(t)}\) とします。責任度を
+
+\[
+\tau_{ik}^{(t)}
+=P(C_i=k\mid y_i,\theta^{(t)})
+\]
+
+と定義します。
+
+二成分の場合、
+
+\[
+\tau_{i1}^{(t)}
+=\frac{\pi^{(t)}\phi_{\mu_1^{(t)},\sigma_1^{(t)}}(y_i)}
+{\pi^{(t)}\phi_{\mu_1^{(t)},\sigma_1^{(t)}}(y_i)
++(1-\pi^{(t)})\phi_{\mu_2^{(t)},\sigma_2^{(t)}}(y_i)},
+\]
+
+\[
+\tau_{i2}^{(t)}=1-\tau_{i1}^{(t)}.
+\]
+
+実装ではこの比率も対数空間で評価し、`logsumexp` により分母を安定化します。
+
+### 3.5 M-step
+
+有効サンプルサイズを
+
+\[
+N_k^{(t)}=\sum_{i=1}^{n}\tau_{ik}^{(t)}
+\]
+
+とします。期待完全データ対数尤度を最大化すると、更新式は
+
+\[
+\pi_k^{(t+1)}=\frac{N_k^{(t)}}{n},
+\]
+
+\[
+\mu_k^{(t+1)}=\frac{\sum_{i=1}^{n}\tau_{ik}^{(t)}y_i}{N_k^{(t)}},
+\]
+
+\[
+(\sigma_k^2)^{(t+1)}
+=\frac{\sum_{i=1}^{n}\tau_{ik}^{(t)}(y_i-\mu_k^{(t+1)})^2}{N_k^{(t)}}.
+\]
+
+二成分に戻すと、実装上の更新は
+
+\[
+\pi^{(t+1)}=\frac{1}{n}\sum_i \tau_{i1}^{(t)},
+\]
+
+\[
+\mu_1^{(t+1)}=\frac{\sum_i\tau_{i1}^{(t)}y_i}{\sum_i\tau_{i1}^{(t)}},
+\qquad
+\mu_2^{(t+1)}=\frac{\sum_i(1-\tau_{i1}^{(t)})y_i}{\sum_i(1-\tau_{i1}^{(t)})},
+\]
+
+\[
+(\sigma_1^2)^{(t+1)}=\frac{\sum_i\tau_{i1}^{(t)}(y_i-\mu_1^{(t+1)})^2}{\sum_i\tau_{i1}^{(t)}},
+\]
+
+\[
+(\sigma_2^2)^{(t+1)}=\frac{\sum_i(1-\tau_{i1}^{(t)})(y_i-\mu_2^{(t+1)})^2}{\sum_i(1-\tau_{i1}^{(t)})}.
+\]
+
+### 3.6 収束判定
+
+各反復の観測データ対数尤度を
+
+\[
+\ell^{(t)}=
+\sum_{i=1}^{n}\log\left[\pi^{(t)}\phi_{\mu_1^{(t)},\sigma_1^{(t)}}(y_i)
++(1-\pi^{(t)})\phi_{\mu_2^{(t)},\sigma_2^{(t)}}(y_i)\right]
+\]
+
+とします。実装では
+
+\[
+|\ell^{(t)}-\ell^{(t-1)}|
+\le \mathrm{tol}\,\{1+|\ell^{(t-1)}|\}
+\]
+
+を満たしたとき収束とします。ただし初回は \(\ell^{(t-1)}=-\infty\) であるため、有限値でない前回値との比較では収束扱いにしません。
+
+### 3.7 multi-start と label ordering
+
+混合モデルでは局所解が生じます。実装は複数の開始点から EM を走らせ、最小の負の対数尤度を持つ解を採用します。
+
+また、\((\pi,\mu_1,\sigma_1,\mu_2,\sigma_2)\) と \((1-\pi,\mu_2,\sigma_2,\mu_1,\sigma_1)\) は同じ密度を表します。このラベル交換をレポート上で安定化するため、実装では最終的に
+
+\[
+\mu_1\le \mu_2
+\]
+
+となるようにラベルを並べ替えます。
+
+### 3.8 実装対応
+
+`fit_gmm2` は、分位点分割に基づく決定的開始点と乱数開始点を組み合わせます。各開始点で EM を実行し、最良の負の対数尤度を持つ候補を返します。`converged` は「どれか一つの開始点が収束したか」ではなく、「採用された最良候補が収束したか」を表します。
+
+---
+
+## 4. ABN: Asymmetric Bimodal Normal
+
+### 4.1 標準形の定義
+
+ABN は、平均位置が対称で、分散が等しく、重みだけが非対称な二成分正規混合です。標準形 \(Z\) の密度を
+
+\[
+f_{\mathrm{ABN}}(z;\lambda,\alpha)
+= w_+\phi(z-\lambda)+w_-\phi(z+\lambda)
+\]
+
+と定義します。ただし
+
+\[
+w_+=\frac{1+\alpha}{2},
+\qquad
+w_- =\frac{1-\alpha}{2},
+\]
+
+\[
+\lambda>0,
+\qquad
+-1<\alpha<1.
+\]
+
+ここで \(\lambda\) は二つの正規成分の分離を表し、\(\alpha\) は重みの偏りを表します。\(\alpha>0\) なら \(+\lambda\) 側の成分重みが大きく、\(\alpha<0\) なら \(-\lambda\) 側の成分重みが大きくなります。
+
+位置尺度拡張は
+
+\[
+f_Y(y;\mu,\sigma,\lambda,\alpha)
+=\frac{1}{\sigma}
+\left[\frac{1+\alpha}{2}\phi(z-\lambda)
++\frac{1-\alpha}{2}\phi(z+\lambda)
+\right],
+\qquad
+z=\frac{y-\mu}{\sigma}.
+\]
+
+### 4.2 正規化の確認
+
+標準正規密度は積分 1 であるため、
+
+\[
+\int_{-\infty}^{\infty}\phi(z-\lambda)\,dz=1,
+\qquad
+\int_{-\infty}^{\infty}\phi(z+\lambda)\,dz=1.
+\]
+
+したがって、
+
+\[
+\int f_{\mathrm{ABN}}(z;\lambda,\alpha)\,dz
+=w_++w_-=\frac{1+\alpha}{2}+\frac{1-\alpha}{2}=1.
+\]
+
+位置尺度拡張では \(dy=\sigma dz\) なので、同様に積分 1 です。
+
+### 4.3 混合分布としての生成表現
+
+\[
+S\in\{+1,-1\},
+\qquad
+P(S=+1)=w_+,
+\qquad
+P(S=-1)=w_-.
+\]
+
+\(\varepsilon\sim N(0,1)\) とし、\(S\) と \(\varepsilon\) を独立とすれば、
+
+\[
+Z=S\lambda+\varepsilon
+\]
+
+は ABN に従います。位置尺度版は
+
+\[
+Y=\mu+\sigma Z.
+\]
+
+この生成表現により、ABN の乱数生成は通常の二成分混合と同じく直接実行できます。
+
+### 4.4 平均と分散
+
+\(E[S]=w_+-w_- = \alpha\) です。したがって、
+
+\[
+E[Z]=E[S\lambda+\varepsilon]=\lambda\alpha.
+\]
+
+また、
+
+\[
+\operatorname{Var}(Z)
+=\operatorname{Var}(S\lambda)+\operatorname{Var}(\varepsilon)
+=\lambda^2\operatorname{Var}(S)+1.
+\]
+
+\(S^2=1\) なので
+
+\[
+\operatorname{Var}(S)=E[S^2]-E[S]^2=1-\alpha^2.
+\]
+
+よって、
+
+\[
+\operatorname{Var}(Z)=1+\lambda^2(1-\alpha^2).
+\]
+
+位置尺度版では
+
+\[
+E[Y]=\mu+\sigma\lambda\alpha,
+\]
+
+\[
+\operatorname{Var}(Y)=\sigma^2\{1+\lambda^2(1-\alpha^2)\}.
+\]
+
+### 4.5 対数尤度
+
+\[
+A_i(\theta)
+=\frac{1+\alpha}{2}\phi(z_i-\lambda)
++\frac{1-\alpha}{2}\phi(z_i+\lambda)
+\]
+
+と置くと、
+
+\[
+\ell(\theta)=\sum_{i=1}^{n}\log A_i(\theta)-n\log\sigma.
+\]
+
+直接評価では桁落ちが起きるため、実装では
+
+\[
+\log A_i
+=\operatorname{logsumexp}\left(
+\log\frac{1+\alpha}{2}+\log\phi(z_i-\lambda),
+\log\frac{1-\alpha}{2}+\log\phi(z_i+\lambda)
+\right)
+\]
+
+で評価します。
+
+### 4.6 EM 型更新式
+
+ABN は制約付き二成分混合であるため、EM 型の導出もできます。実装は L-BFGS-B による直接最小化を用いますが、理論構造の確認には EM 表現が有用です。
+
+潜在変数 \(S_i\in\{+1,-1\}\) を導入します。E-step では
+
+\[
+\tau_i=P(S_i=+1\mid y_i,\theta^{(t)})
+\]
+
+を計算します。
+
+\[
+\tau_i
+=\frac{w_+\phi(z_i-\lambda)}{w_+\phi(z_i-\lambda)+w_-\phi(z_i+\lambda)}.
+\]
+
+ここで \(z_i=(y_i-\mu)/\sigma\) は現在のパラメータで標準化されます。
+
+M-step を導出するには、成分平均を
+
+\[
+m_+=\mu+d,
+\qquad
+m_- =\mu-d,
+\qquad
+ d=\sigma\lambda>0
+\]
+
+と再パラメータ化すると分かりやすくなります。共通分散は \(\sigma^2\) です。
+
+\[
+s_i=E[S_i\mid y_i]=2\tau_i-1
+\]
+
+と置きます。完全データの二乗誤差部分の条件付き期待値は
+
+\[
+Q_{\mathrm{quad}}(\mu,d,\sigma)
+=\sum_{i=1}^{n}E[(y_i-\mu-S_i d)^2\mid y_i].
+\]
+
+\(E[S_i]=s_i\), \(S_i^2=1\) より
+
+\[
+Q_{\mathrm{quad}}
+=\sum_{i=1}^{n}\{(y_i-\mu)^2-2d s_i(y_i-\mu)+d^2\}.
+\]
+
+\(\mu,d\) について最小化します。\(\bar y=n^{-1}\sum_i y_i\), \(\bar s=n^{-1}\sum_i s_i\) とすると、正規方程式は
+
+\[
+\mu=\bar y-d\bar s,
+\]
+
+\[
+d=\frac{1}{n}\sum_{i=1}^{n}s_i(y_i-\mu).
+\]
+
+第一式を第二式に代入すると、
+
+\[
+d(1-\bar s^2)=\frac{1}{n}\sum_{i=1}^{n}s_i(y_i-\bar y).
+\]
+
+したがって
+
+\[
+d=\frac{n^{-1}\sum_i s_i(y_i-\bar y)}{1-\bar s^2}
+\]
+
+です。ただし、実装上は \(d>0\) の制約とラベルの向きに注意が必要です。重みは
+
+\[
+w_+ = \frac{1}{n}\sum_i\tau_i,
+\qquad
+\alpha=2w_+-1.
+\]
+
+共通分散は
+
+\[
+\sigma^2
+=\frac{1}{n}\sum_{i=1}^{n}\{(y_i-\mu)^2-2d s_i(y_i-\mu)+d^2\}.
+\]
+
+最後に
+
+\[
+\lambda=\frac{d}{\sigma}
+\]
+
+です。この EM 型更新は理論上の構造を示すものであり、現在のコードはこの更新式ではなく、変換パラメータによる直接最尤推定を採用しています。
+
+### 4.7 実装の最適化パラメータ
+
+実装では制約を自然に満たすため、最適化内部の実数パラメータを
+
+\[
+r=(r_\mu,r_\sigma,r_\lambda,r_\alpha)
+\]
+
+とし、物理パラメータへ
+
+\[
+\mu=r_\mu,
+\qquad
+\sigma=\exp(r_\sigma),
+\qquad
+\lambda=\exp(r_\lambda),
+\qquad
+\alpha=\tanh(r_\alpha)
+\]
+
+で写します。これにより、\(\sigma>0\), \(\lambda>0\), \(-1<\alpha<1\) が常に保たれます。
+
+---
+
+## 5. ADN: Asymmetric Double Normal
+
+### 5.1 標準形の定義
+
+ADN は、対称な等重み二正規混合を基底密度とし、正規分布関数による歪化を施した分布です。分離パラメータを \(a\ge 0\)、歪化パラメータを \(\kappa\in\mathbb{R}\) と書きます。
+
+まず対称基底密度を
+
+\[
+h_a(z)=\frac{1}{2}\{\phi(z-a)+\phi(z+a)\}
+\]
+
+と定義します。\(h_a\) は \(h_a(z)=h_a(-z)\) を満たす偶関数です。
+
+ADN 標準形の密度を
+
+\[
+f_{\mathrm{ADN}}(z;a,\kappa)
+=2h_a(z)\Phi(\kappa z)
+\]
+
+と定義します。すなわち、
+
+\[
+f_{\mathrm{ADN}}(z;a,\kappa)
+=\{\phi(z-a)+\phi(z+a)\}\Phi(\kappa z).
+\]
+
+位置尺度版は
+
+\[
+f_Y(y;\mu,\sigma,a,\kappa)
+=\frac{1}{\sigma}\{\phi(z-a)+\phi(z+a)\}\Phi(\kappa z),
+\qquad
+z=\frac{y-\mu}{\sigma}.
+\]
+
+実装では \(a\) を `sep`, \(\kappa\) を `skew` と呼びます。
+
+### 5.2 正規化の導出
+
+\(h_a\) は密度であり、偶関数です。
+
+\[
+\int h_a(z)\,dz=1,
+\qquad
+h_a(z)=h_a(-z).
+\]
+
+\(\Phi(t)+\Phi(-t)=1\) を用いると、
+
+\[
+I=\int_{-\infty}^{\infty}2h_a(z)\Phi(\kappa z)\,dz
+\]
+
+に対し、変数変換 \(u=-z\) により
+
+\[
+I=\int_{-\infty}^{\infty}2h_a(z)\Phi(-\kappa z)\,dz
+\]
+
+も成り立ちます。両式を足すと、
+
+\[
+2I=2\int h_a(z)\{\Phi(\kappa z)+\Phi(-\kappa z)\}\,dz
+=2\int h_a(z)\,dz=2.
+\]
+
+よって \(I=1\) であり、ADN は正しく正規化された密度です。
+
+### 5.3 特殊ケース
+
+#### 5.3.1 \(\kappa=0\)
+
+\(\Phi(0)=1/2\) なので、
+
+\[
+f_{\mathrm{ADN}}(z;a,0)
+=\frac{1}{2}\{\phi(z-a)+\phi(z+a)\}=h_a(z).
+\]
+
+したがって、歪化がない等重み二正規混合になります。
+
+#### 5.3.2 \(a=0\)
+
+\(\phi(z-a)=\phi(z+a)=\phi(z)\) なので、
+
+\[
+f_{\mathrm{ADN}}(z;0,\kappa)
+=2\phi(z)\Phi(\kappa z),
+\]
+
+これは Azzalini 型 skew-normal 密度です。
+
+#### 5.3.3 \(a=0,\kappa=0\)
+
+\[
+f_{\mathrm{ADN}}(z;0,0)=\phi(z).
+\]
+
+したがって標準正規に戻ります。
+
+### 5.4 対数尤度
+
+\[
+B_i=\phi(z_i-a)+\phi(z_i+a)
+\]
+
+と置くと、
+
+\[
+\ell(\theta)
+=\sum_{i=1}^{n}\left[\log B_i+\log\Phi(\kappa z_i)-\log\sigma\right].
+\]
+
+実装では
+
+\[
+\log B_i=\operatorname{logsumexp}(\log\phi(z_i-a),\log\phi(z_i+a))
+\]
+
+とし、\(\log\Phi(\kappa z_i)\) は安定な関数で評価します。
+
+### 5.5 スコアの導出
+
+数値最適化には必ずしも解析勾配を渡していませんが、理論的な well-definedness を確認するため、対数密度の導関数を整理します。
+
+\[
+B_i=\phi(z_i-a)+\phi(z_i+a).
+\]
+
+さらに
+
+\[
+p_i^+=\frac{\phi(z_i-a)}{B_i},
+\qquad
+p_i^- =\frac{\phi(z_i+a)}{B_i}
+\]
+
+と置きます。\(p_i^++p_i^-=1\) です。
+
+標準正規の導関数 \(\phi'(x)=-x\phi(x)\) より、
+
+\[
+\frac{\partial \log B_i}{\partial z_i}
+=-(z_i-a)p_i^+-(z_i+a)p_i^-.
+\]
+
+また、
+
+\[
+\frac{\partial \log B_i}{\partial a}
+=(z_i-a)p_i^+-(z_i+a)p_i^-.
+\]
+
+\(R(t)=\phi(t)/\Phi(t)\) と置くと、
+
+\[
+\frac{\partial}{\partial z_i}\log\Phi(\kappa z_i)
+=\kappa R(\kappa z_i),
+\]
+
+\[
+\frac{\partial}{\partial \kappa}\log\Phi(\kappa z_i)
+=z_iR(\kappa z_i).
+\]
+
+したがって、標準化変数に関する微分は
+
+\[
+q_i:=\frac{\partial}{\partial z_i}\log f_{\mathrm{ADN}}(z_i;a,\kappa)
+=-(z_i-a)p_i^+-(z_i+a)p_i^-+\kappa R(\kappa z_i).
+\]
+
+位置尺度パラメータについては
+
+\[
+\frac{\partial z_i}{\partial \mu}=-\frac{1}{\sigma},
+\qquad
+\frac{\partial z_i}{\partial \sigma}=-\frac{z_i}{\sigma}
+\]
+
+です。よって、
+
+\[
+\frac{\partial \ell}{\partial \mu}
+=-\frac{1}{\sigma}\sum_{i=1}^{n}q_i,
+\]
+
+\[
+\frac{\partial \ell}{\partial \sigma}
+=-\frac{n}{\sigma}-\frac{1}{\sigma}\sum_{i=1}^{n}z_iq_i.
+\]
+
+形状パラメータについては
+
+\[
+\frac{\partial \ell}{\partial a}
+=\sum_{i=1}^{n}\{(z_i-a)p_i^+-(z_i+a)p_i^-\},
+\]
+
+\[
+\frac{\partial \ell}{\partial \kappa}
+=\sum_{i=1}^{n}z_iR(\kappa z_i).
+\]
+
+### 5.6 ADN の乱数生成
+
+ADN は受容棄却法で自然に生成できます。提案分布を対称基底
+
+\[
+q(z)=h_a(z)=\frac{1}{2}\{\phi(z-a)+\phi(z+a)\}
+\]
+
+とします。目標密度は
+
+\[
+f(z)=2q(z)\Phi(\kappa z).
+\]
+
+\(0\le \Phi(\kappa z)\le 1\) なので、上界定数 \(M=2\) が使えます。
+
+受容確率は
+
+\[
+\frac{f(z)}{Mq(z)}=\Phi(\kappa z)
+\]
+
+です。したがって、
+
+1. \(S\in\{+1,-1\}\) を等確率で生成する。
+2. \(Z^\star\sim N(Sa,1)\) を生成する。
+3. \(U\sim U(0,1)\) を生成する。
+4. \(U\le \Phi(\kappa Z^\star)\) なら採用する。
+
+実装の `_sample_adn` はこの手順に対応します。
+
+### 5.7 実装の最適化パラメータ
+
+内部パラメータを
+
+\[
+r=(r_\mu,r_\sigma,r_a,r_\kappa)
+\]
+
+とし、
+
+\[
+\mu=r_\mu,
+\qquad
+\sigma=\exp(r_\sigma),
+\qquad
+a=\exp(r_a),
+\qquad
+\kappa=r_\kappa
+\]
+
+で物理パラメータへ写します。これにより \(\sigma>0\), \(a>0\) が保たれます。理論上は \(a=0\) も許されますが、最適化内部では \(a\) を厳密に 0 にせず、非常に小さい正値まで近づけます。
+
+---
+
+## 6. BSN-FS: Fernández--Steel 型 Bimodal Skew Normal
+
+### 6.1 Fernández--Steel 歪化の一般形
+
+\(f\) を 0 を中心とする対称密度とします。Fernández--Steel 型の歪化密度を
+
+\[
+s_\gamma(x)
+=\frac{2}{\gamma+\gamma^{-1}}
+\left\{
+ f\left(\frac{x}{\gamma}\right)\mathbf{1}_{[0,\infty)}(x)
+ +f(\gamma x)\mathbf{1}_{(-\infty,0)}(x)
+\right\},
+\qquad
+\gamma>0
+\]
+
+と定義します。\(\gamma=1\) のとき元の対称密度 \(f\) に戻ります。\(\gamma>1\) では右側の尺度が広がり、\(0<\gamma<1\) では左側が相対的に広がります。
+
+### 6.2 二峰化摂動
+
+\(s_\gamma\) の二次モーメントを
+
+\[
+b_\gamma=E_{s_\gamma}[X^2]
+=\int_{-\infty}^{\infty}x^2s_\gamma(x)\,dx
+\]
+
+とします。二峰化された密度は
+
+\[
+f(x;\alpha,\gamma)
+=\frac{1+\alpha x^2}{1+\alpha b_\gamma}s_\gamma(x),
+\qquad
+\alpha\ge 0,
+\quad
+\gamma>0
+\]
+
+です。
+
+正規化は直ちに確認できます。
+
+\[
+\int\frac{1+\alpha x^2}{1+\alpha b_\gamma}s_\gamma(x)\,dx
+=\frac{1+\alpha E_{s_\gamma}[X^2]}{1+\alpha b_\gamma}=1.
+\]
+
+\(\alpha\) は中心付近の密度を相対的に下げ、両側の質量を増やすため、二峰性を誘導します。
+
+### 6.3 標準正規基底の場合
+
+本実装は \(f=\phi\) の場合、すなわち BSN-FS を使います。このとき
+
+\[
+s_\gamma(z)
+=\frac{2}{\gamma+\gamma^{-1} }\frac{1}{\sqrt{2\pi}}
+\exp\left[-\frac{z^2}{2}\left(\gamma^{-2}\mathbf{1}_{[0,\infty)}(z)+\gamma^2\mathbf{1}_{(-\infty,0)}(z)\right)\right].
+\]
+
+また、標準正規基底では
+
+\[
+b_\gamma=\frac{\gamma^3+\gamma^{-3}}{\gamma+\gamma^{-1}}.
+\]
+
+したがって、標準形の BSN-FS 密度は
+
+\[
+f_{\mathrm{BSN\text{-}FS}}(z;\alpha,\gamma)
+=\frac{1+\alpha z^2}{1+\alpha b_\gamma}s_\gamma(z).
+\]
+
+位置尺度版は
+
+\[
+f_Y(y;\mu,\sigma,\alpha,\gamma)
+=\frac{1}{\sigma}
+\frac{1+\alpha z^2}{1+\alpha b_\gamma}s_\gamma(z),
+\qquad
+z=\frac{y-\mu}{\sigma}.
+\]
+
+### 6.4 特殊ケース
+
+#### 6.4.1 \(\alpha=0\)
+
+\[
+f_{\mathrm{BSN\text{-}FS}}(z;0,\gamma)=s_\gamma(z).
+\]
+
+したがって Fernández--Steel skew normal に戻ります。
+
+#### 6.4.2 \(\gamma=1\)
+
+\(s_1(z)=\phi(z)\), \(b_1=1\) なので、
+
+\[
+f(z;\alpha,1)=\frac{1+\alpha z^2}{1+\alpha}\phi(z).
+\]
+
+これは対称な二峰化正規であり、\(\alpha\) が大きいほど中心が相対的に抑えられます。
+
+#### 6.4.3 \(\alpha=0,\gamma=1\)
+
+標準正規に戻ります。
+
+### 6.5 対数尤度
+
+\[
+D_\gamma=\gamma+\gamma^{-1}
+\]
+
+と置きます。\(z_i\ge0\) のとき、
+
+\[
+\log s_\gamma(z_i)
+=\log2-\log D_\gamma-\frac{1}{2}\log(2\pi)-\frac{1}{2}\left(\frac{z_i}{\gamma}\right)^2.
+\]
+
+\(z_i<0\) のとき、
+
+\[
+\log s_\gamma(z_i)
+=\log2-\log D_\gamma-\frac{1}{2}\log(2\pi)-\frac{1}{2}(\gamma z_i)^2.
+\]
+
+したがって、
+
+\[
+\ell(\theta)=
+\sum_{i=1}^{n}\left[
+\log(1+\alpha z_i^2)-\log(1+\alpha b_\gamma)
++\log s_\gamma(z_i)-\log\sigma
+\right].
+\]
+
+### 6.6 スコアの導出
+
+解析的な閉形式更新式は得にくいため、実装は L-BFGS-B による直接最小化を行います。ただし、目的関数の構造を確認するために主要な導関数を記載します。
+
+まず、\(\alpha\) に関する導関数は
+
+\[
+\frac{\partial \ell}{\partial \alpha}
+=\sum_{i=1}^{n}\frac{z_i^2}{1+\alpha z_i^2}
+-n\frac{b_\gamma}{1+\alpha b_\gamma}.
+\]
+
+次に、
+
+\[
+N_\gamma=\gamma^3+\gamma^{-3},
+\qquad
+D_\gamma=\gamma+\gamma^{-1},
+\qquad
+b_\gamma=\frac{N_\gamma}{D_\gamma}.
+\]
+
+\[
+N_\gamma'=3\gamma^2-3\gamma^{-4},
+\qquad
+D_\gamma'=1-\gamma^{-2}.
+\]
+
+したがって、
+
+\[
+b_\gamma'
+=\frac{N_\gamma'D_\gamma-N_\gamma D_\gamma'}{D_\gamma^2}.
+\]
+
+\(\gamma\) に関するスコアは
+
+\[
+\frac{\partial \ell}{\partial \gamma}
+=\sum_{i=1}^{n}\frac{\partial}{\partial\gamma}\log s_\gamma(z_i)
+-n\frac{\alpha b_\gamma'}{1+\alpha b_\gamma}.
+\]
+
+ここで
+
+\[
+\frac{\partial}{\partial\gamma}\log s_\gamma(z_i)
+= -\frac{D_\gamma'}{D_\gamma}+\frac{z_i^2}{\gamma^3},
+\qquad z_i\ge0,
+\]
+
+\[
+\frac{\partial}{\partial\gamma}\log s_\gamma(z_i)
+= -\frac{D_\gamma'}{D_\gamma}-\gamma z_i^2,
+\qquad z_i<0.
+\]
+
+標準化変数に関する導関数は
+
+\[
+\frac{\partial}{\partial z_i}\log f(z_i;\alpha,\gamma)
+=\frac{2\alpha z_i}{1+\alpha z_i^2}
++\frac{\partial}{\partial z_i}\log s_\gamma(z_i),
+\]
+
+ただし
+
+\[
+\frac{\partial}{\partial z_i}\log s_\gamma(z_i)=
+-\frac{z_i}{\gamma^2},\qquad z_i\ge0,
+\]
+
+\[
+\frac{\partial}{\partial z_i}\log s_\gamma(z_i)=
+-\gamma^2 z_i,
+\qquad z_i<0.
+\]
+
+位置尺度パラメータについては、ADN と同じく
+
+\[
+\frac{\partial z_i}{\partial\mu}=-\frac{1}{\sigma},
+\qquad
+\frac{\partial z_i}{\partial\sigma}=-\frac{z_i}{\sigma}
+\]
+
+を用いて連鎖律で求めます。
+
+### 6.7 BSN-FS の独立 Metropolis--Hastings 生成
+
+実装のランダム探索では、BSN-FS 生成に独立 Metropolis--Hastings 法を使います。提案分布は \(\alpha=0\) の FS skew normal、すなわち
+
+\[
+q(z)=s_\gamma(z)
+\]
+
+です。目標密度は
+
+\[
+f(z)=\frac{1+\alpha z^2}{1+\alpha b_\gamma}q(z).
+\]
+
+したがって、目標密度と提案密度の比は
+
+\[
+\frac{f(z)}{q(z)}=\frac{1+\alpha z^2}{1+\alpha b_\gamma}.
+\]
+
+独立 MH では、現在値を \(z\)、提案値を \(z^\star\) とすると、受容確率は
+
+\[
+A(z,z^\star)=
+\min\left\{1,
+\frac{f(z^\star)q(z)}{f(z)q(z^\star)}
+\right\}
+=\min\left\{1,
+\frac{1+\alpha (z^\star)^2}{1+\alpha z^2}
+\right\}.
+\]
+
+正規化定数 \(1+\alpha b_\gamma\) は比で相殺されます。
+
+### 6.8 実装の最適化パラメータ
+
+内部パラメータは
+
+\[
+r=(r_\mu,r_\sigma,r_\alpha,r_\gamma)
+\]
+
+であり、
+
+\[
+\mu=r_\mu,
+\qquad
+\sigma=\exp(r_\sigma),
+\qquad
+\alpha=\exp(r_\alpha),
+\qquad
+\gamma=\exp(r_\gamma).
+\]
+
+したがって \(\sigma>0\), \(\alpha>0\), \(\gamma>0\) が保たれます。理論上は \(\alpha=0\) も含みますが、最適化内部では厳密な 0 ではなく、非常に小さい正値で近似されます。
+
+---
+
+## 7. NTPN: New Two-Piece Normal extension
+
+### 7.1 TPN 基底密度
+
+本実装が使う NTPN の基底は、AIMS 論文で定義される TPN 密度です。標準形で
+
+\[
+g_\lambda(z)=\phi(z)\exp\left(-\frac{\lambda^2}{2}\right)\cosh(\lambda z),
+\qquad
+\lambda\ge0.
+\]
+
+一方、実装では数値安定性のために
+
+\[
+g_\lambda(z)=\frac{1}{2}\{\phi(z-\lambda)+\phi(z+\lambda)\}
+\]
+
+という等価表現を使います。等価性は次の通りです。
+
+\[
+\phi(z-\lambda)
+=\frac{1}{\sqrt{2\pi}}\exp\left[-\frac{(z-\lambda)^2}{2}\right]
+=\phi(z)\exp\left(\lambda z-\frac{\lambda^2}{2}\right),
+\]
+
+\[
+\phi(z+\lambda)
+=\phi(z)\exp\left(-\lambda z-\frac{\lambda^2}{2}\right).
+\]
+
+したがって、
+
+\[
+\frac{1}{2}\{\phi(z-\lambda)+\phi(z+\lambda)\}
+=\phi(z)\exp\left(-\frac{\lambda^2}{2}\right)
+\frac{e^{\lambda z}+e^{-\lambda z}}{2}
+=\phi(z)e^{-\lambda^2/2}\cosh(\lambda z).
+\]
+
+### 7.2 NTPN 標準形の定義
+
+NTPN 標準形の密度を
+
+\[
+f_{\mathrm{NTPN}}(z;\alpha,\lambda)
+=\frac{(1-\alpha z)^2+1}{C(\alpha,\lambda)}g_\lambda(z)
+\]
+
+と定義します。ただし
+
+\[
+\alpha\in\mathbb{R},
+\qquad
+\lambda\ge0,
+\]
+
+\[
+C(\alpha,\lambda)=\alpha^2(\lambda^2+1)+2.
+\]
+
+位置尺度拡張は
+
+\[
+f_Y(y;\mu,\sigma,\alpha,\lambda)
+=\frac{1}{\sigma}
+\frac{(1-\alpha z)^2+1}{C(\alpha,\lambda)}g_\lambda(z),
+\qquad
+z=\frac{y-\mu}{\sigma}.
+\]
+
+### 7.3 正規化定数の導出
+
+\(Z\sim g_\lambda\) とします。\(g_\lambda\) は \(N(\lambda,1)\) と \(N(-\lambda,1)\) の等重み混合なので、
+
+\[
+E_g[Z]=0,
+\]
+
+\[
+E_g[Z^2]=\lambda^2+1.
+\]
+
+したがって、
+
+\[
+\int\{(1-\alpha z)^2+1\}g_\lambda(z)\,dz
+=E_g[(1-\alpha Z)^2+1].
+\]
+
+右辺は
+
+\[
+E_g[1-2\alpha Z+\alpha^2Z^2+1]
+=2-2\alpha E_g[Z]+\alpha^2E_g[Z^2]
+=2+\alpha^2(\lambda^2+1).
+\]
+
+よって
+
+\[
+C(\alpha,\lambda)=2+\alpha^2(\lambda^2+1)
+\]
+
+であり、NTPN 密度は正規化されます。
+
+### 7.4 特殊ケース
+
+#### 7.4.1 \(\alpha=0\)
+
+\[
+C(0,\lambda)=2
+\]
+
+かつ \((1-0\cdot z)^2+1=2\) なので、
+
+\[
+f_{\mathrm{NTPN}}(z;0,\lambda)=g_\lambda(z).
+\]
+
+つまり TPN に戻ります。
+
+#### 7.4.2 \(\lambda=0\)
+
+\(g_0(z)=\phi(z)\) であるため、
+
+\[
+f_{\mathrm{NTPN}}(z;\alpha,0)
+=\frac{(1-\alpha z)^2+1}{\alpha^2+2}\phi(z).
+\]
+
+これは正規基底に二次の歪化重みを掛けた形です。
+
+#### 7.4.3 \(\alpha=0,\lambda=0\)
+
+\[
+f_{\mathrm{NTPN}}(z;0,0)=\phi(z).
+\]
+
+標準正規に戻ります。
+
+#### 7.4.4 反射対称性
+
+\(g_\lambda(z)=g_\lambda(-z)\) なので、
+
+\[
+f_{\mathrm{NTPN}}(z;\alpha,\lambda)
+=f_{\mathrm{NTPN}}(-z;-\alpha,\lambda)
+\]
+
+が成り立ちます。
+
+### 7.5 対数尤度
+
+\[
+A_i=(1-\alpha z_i)^2+1,
+\qquad
+C=\alpha^2(\lambda^2+1)+2.
+\]
+
+\[
+\log g_\lambda(z_i)
+=-\frac{1}{2}\log(2\pi)-\frac{1}{2}z_i^2-\frac{1}{2}\lambda^2+
+\log\cosh(\lambda z_i).
+\]
+
+したがって、対数尤度は
+
+\[
+\ell(\theta)
+= -n\log C-n\log\sigma-\frac{n}{2}\log(2\pi)
+-\frac{1}{2}\sum_{i=1}^{n}z_i^2
+-\frac{n}{2}\lambda^2
++\sum_{i=1}^{n}\log\cosh(\lambda z_i)
++\sum_{i=1}^{n}\log A_i.
+\]
+
+実装では \(\log g_\lambda\) を `logsumexp(log_phi(z-lambda), log_phi(z+lambda)) - log(2)` として評価します。これは `cosh` の指数発散を避けるためです。
+
+### 7.6 スコア方程式
+
+本節では、本文書の統一記法
+
+\[
+z_i=\frac{y_i-\mu}{\sigma}
+\]
+
+に基づいて、実装で評価している対数密度から直接スコアを導出します。既存文献のスコア式と照合する場合は、標準化変数の定義、尺度パラメータの記号、微分対象が対数尤度か負の対数尤度かを先にそろえる必要があります。
+
+まず、
+
+\[
+A_i=(1-\alpha z_i)^2+1,
+\qquad
+C=\alpha^2(\lambda^2+1)+2.
+\]
+
+標準化変数に関する導関数は
+
+\[
+q_i:=\frac{\partial}{\partial z_i}\log f_{\mathrm{NTPN}}(z_i;\alpha,\lambda)
+=-z_i+\lambda\tanh(\lambda z_i)
+-\frac{2\alpha(1-\alpha z_i)}{A_i}.
+\]
+
+位置パラメータについては
+
+\[
+\frac{\partial z_i}{\partial\mu}=-\frac{1}{\sigma}
+\]
+
+であるため、
+
+\[
+\frac{\partial \ell}{\partial \mu}
+=-\frac{1}{\sigma}\sum_{i=1}^{n}q_i
+=\frac{1}{\sigma}\sum_{i=1}^{n}
+\left[z_i-\lambda\tanh(\lambda z_i)+\frac{2\alpha(1-\alpha z_i)}{A_i}\right].
+\]
+
+尺度パラメータについては
+
+\[
+\frac{\partial z_i}{\partial\sigma}=-\frac{z_i}{\sigma}
+\]
+
+であり、密度の \(-n\log\sigma\) 項もあるため、
+
+\[
+\frac{\partial \ell}{\partial \sigma}
+=-\frac{n}{\sigma}-\frac{1}{\sigma}\sum_{i=1}^{n}z_iq_i.
+\]
+
+展開すると、
+
+\[
+\frac{\partial \ell}{\partial \sigma}
+=-\frac{n}{\sigma}+\frac{1}{\sigma}\sum_{i=1}^{n}
+\left[z_i^2-\lambda z_i\tanh(\lambda z_i)
++\frac{2\alpha z_i(1-\alpha z_i)}{A_i}\right].
+\]
+
+\(\alpha\) については、
+
+\[
+\frac{\partial}{\partial\alpha}\log A_i
+=\frac{-2z_i(1-\alpha z_i)}{A_i},
+\]
+
+\[
+\frac{\partial}{\partial\alpha}\log C
+=\frac{2\alpha(\lambda^2+1)}{C}.
+\]
+
+したがって、
+
+\[
+\frac{\partial \ell}{\partial \alpha}
+=\sum_{i=1}^{n}\frac{-2z_i(1-\alpha z_i)}{A_i}
+-n\frac{2\alpha(\lambda^2+1)}{C}.
+\]
+
+\(\lambda\) については、
+
+\[
+\frac{\partial}{\partial\lambda}\log g_\lambda(z_i)
+=-\lambda+z_i\tanh(\lambda z_i),
+\]
+
+\[
+\frac{\partial}{\partial\lambda}\log C
+=\frac{2\alpha^2\lambda}{C}.
+\]
+
+よって、
+
+\[
+\frac{\partial \ell}{\partial \lambda}
+=-n\lambda+
+\sum_{i=1}^{n}z_i\tanh(\lambda z_i)
+-n\frac{2\alpha^2\lambda}{C}.
+\]
+
+スコア方程式 \(\nabla\ell(\theta)=0\) は非線形であり、閉形式解は得られません。そのため実装では数値最適化を用います。
+
+### 7.7 NTPN の独立 Metropolis--Hastings 生成
+
+提案分布を \(\alpha=0\) の NTPN、すなわち TPN 基底
+
+\[
+q(z)=g_\lambda(z)
+\]
+
+とします。目標密度は
+
+\[
+f(z)=\frac{A(z)}{C}q(z),
+\qquad
+A(z)=(1-\alpha z)^2+1.
+\]
+
+したがって、目標密度と提案密度の比は
+
+\[
+\frac{f(z)}{q(z)}=\frac{A(z)}{C}.
+\]
+
+独立 MH において、現在値を \(z\)、提案値を \(z^\star\) とすれば、受容確率は
+
+\[
+A_{\mathrm{MH}}(z,z^\star)
+=\min\left\{1,
+\frac{f(z^\star)q(z)}{f(z)q(z^\star)}
+\right\}
+=\min\left\{1,
+\frac{A(z^\star)}{A(z)}
+\right\}.
+\]
+
+正規化定数 \(C\) は比で相殺されます。
+
+実装では提案分布 \(g_\lambda\) から、等確率で \(+\lambda\) または \(-\lambda\) を平均とする正規乱数を生成します。
+
+### 7.8 実装の最適化パラメータ
+
+内部パラメータは
+
+\[
+r=(r_\mu,r_\sigma,r_\alpha,r_\lambda)
+\]
+
+であり、
+
+\[
+\mu=r_\mu,
+\qquad
+\sigma=\exp(r_\sigma),
+\qquad
+\alpha=r_\alpha,
+\qquad
+\lambda=\exp(r_\lambda).
+\]
+
+これにより \(\sigma>0\), \(\lambda>0\) が保たれます。\(\alpha\) は実数全体を許すため、変換しません。
+
+---
+
+## 8. 形状モデル共通の直接最尤推定
+
+### 8.1 対象モデル
+
+次の四つは共通の数値最適化ドライバで推定されます。
+
+\[
+\mathrm{ABN},\quad \mathrm{ADN},\quad \mathrm{BSN\text{-}FS},\quad \mathrm{NTPN}.
+\]
+
+各モデルの物理パラメータを \(\theta\)、内部最適化パラメータを \(r\) とします。変換写像を
+
+\[
+\theta=T_m(r)
+\]
+
+と書きます。ここで \(m\) はモデル名です。
+
+### 8.2 最適化目的
+
+各モデルで最小化する目的関数は
+
+\[
+J_m(r)
+=-\sum_{i=1}^{n}\log f_m(y_i;T_m(r)).
+\]
+
+実装では、非有限値が発生した場合に無効候補として大きな負の対数尤度を返します。暗黙的に別モデルへフォールバックすることはありません。
+
+### 8.3 L-BFGS-B の概念的更新式
+
+L-BFGS-B は制約付きの準ニュートン法です。境界制約集合を \(\mathcal{B}\) とし、反復 \(t\) における近似逆ヘッセ行列を \(H_t\) とします。勾配を \(g_t=\nabla J_m(r_t)\) とすれば、基本的な探索方向は
+
+\[
+p_t=-H_tg_t
+\]
+
+です。線探索によりステップ幅 \(\rho_t>0\) を選び、境界を考慮して
+
+\[
+r_{t+1}=\Pi_{\mathcal{B}}(r_t+\rho_t p_t)
+\]
+
+の形で更新されます。\(\Pi_{\mathcal{B}}\) は境界制約への射影を表します。
+
+本実装では解析勾配を明示的には渡していません。SciPy が目的関数の差分評価により必要な情報を補います。したがって、理論上のスコア式は検証・将来拡張用であり、現行実装の必須入力ではありません。
+
+### 8.4 開始点設計
+
+局所解を避けるため、形状モデルでも複数開始点を用います。共通の位置尺度開始点として
+
+1. 標本平均と標本標準偏差に基づく開始点。
+2. 中央値とロバスト尺度に基づく開始点。
+
+を使います。各モデル固有の形状開始点を組み合わせ、合計複数個の初期値から最適化を行い、最小の負の対数尤度を採用します。
+
+### 8.5 制約と内部変換の一覧
+
+| モデル | 物理パラメータ | 制約 | 内部変換 |
+|---|---:|---:|---|
+| ABN | \((\mu,\sigma,\lambda,\alpha)\) | \(\sigma>0,\lambda>0,-1<\alpha<1\) | \(\sigma=e^{r_\sigma},\lambda=e^{r_\lambda},\alpha=\tanh r_\alpha\) |
+| ADN | \((\mu,\sigma,a,\kappa)\) | \(\sigma>0,a\ge0,\kappa\in\mathbb R\) | \(\sigma=e^{r_\sigma},a=e^{r_a},\kappa=r_\kappa\) |
+| BSN-FS | \((\mu,\sigma,\alpha,\gamma)\) | \(\sigma>0,\alpha\ge0,\gamma>0\) | \(\sigma=e^{r_\sigma},\alpha=e^{r_\alpha},\gamma=e^{r_\gamma}\) |
+| NTPN | \((\mu,\sigma,\alpha,\lambda)\) | \(\sigma>0,\alpha\in\mathbb R,\lambda\ge0\) | \(\sigma=e^{r_\sigma},\alpha=r_\alpha,\lambda=e^{r_\lambda}\) |
+
+境界を理論上含むパラメータ、例えば ADN の \(a=0\)、BSN-FS の \(\alpha=0\)、NTPN の \(\lambda=0\) は、密度関数としては well-defined です。一方、最適化では指数変換により厳密な 0 ではなく小さな正値で近似される場合があります。これは数値最適化の安定性を優先した設計です。
+
+---
+
+## 9. 評価指標とモード診断
+
+### 9.1 AIC と BIC
+
+負の対数尤度を \(J\)、パラメータ数を \(k\)、標本サイズを \(n\) とします。
+
+\[
+\mathrm{AIC}=2k+2J,
+\qquad
+\mathrm{BIC}=k\log n+2J.
+\]
+
+BIC はパラメータ数への罰則が AIC より強く、標本サイズが大きいほど複雑なモデルを選びにくくなります。
+
+### 9.2 ISE
+
+真の密度または生成密度を \(f_0(x)\)、推定密度を \(\hat f(x)\) とします。統合二乗誤差は
+
+\[
+\mathrm{ISE}=\int\{\hat f(x)-f_0(x)\}^2\,dx
+\]
+
+です。実装では格子 \(x_1<\cdots<x_G\) 上の台形則で近似します。
+
+\[
+\widehat{\mathrm{ISE}}
+=\sum_{j=1}^{G-1}\frac{x_{j+1}-x_j}{2}
+\left[
+\{\hat f(x_j)-f_0(x_j)\}^2
++\{\hat f(x_{j+1})-f_0(x_{j+1})\}^2
+\right].
+\]
+
+### 9.3 格子上のモード数診断
+
+モード数診断は、密度格子 \((x_j,\hat f(x_j))\) 上の局所最大を数える視覚的診断です。厳密な数学的モード数判定ではありません。
+
+実装では、最大密度値に対する相対 prominence 閾値を設け、小さな数値的揺らぎを無視します。弱く分離した二峰、肩状の密度、モード境界付近の形状は、真に二峰的に見えても 1 峰と判定される可能性があります。
+
+---
+
+## 10. モデル間の包含関係と比較上の注意
+
+### 10.1 特殊ケースの階層
+
+主要な特殊ケースは以下の通りです。
+
+| モデル | 特殊ケース | 結果 |
+|---|---|---|
+| ADN | \(a=0\) | skew-normal |
+| ADN | \(\kappa=0\) | 等重み二正規混合 |
+| ADN | \(a=0,\kappa=0\) | normal |
+| ABN | \(\alpha=0\) | 対称重みの制約付き二正規混合 |
+| ABN | \(\lambda\to0\) | normal。ただし \(\alpha\) は識別不能 |
+| BSN-FS | \(\alpha=0\) | Fernández--Steel skew normal |
+| BSN-FS | \(\gamma=1\) | 対称な二峰化正規 |
+| BSN-FS | \(\alpha=0,\gamma=1\) | normal |
+| NTPN | \(\alpha=0\) | TPN |
+| NTPN | \(\lambda=0\) | 正規基底の二次歪化密度 |
+| NTPN | \(\alpha=0,\lambda=0\) | normal |
+| GMM2 | 成分が一致 | normal。ただし非識別 |
+
+### 10.2 識別性
+
+GMM2 はラベル交換により非識別です。すなわち、成分 1 と成分 2 を入れ替えても同じ密度になります。実装は報告値の安定化のため \(\mu_1\le\mu_2\) に並べ替えます。
+
+ABN は成分位置が \(\pm\lambda\)、重みが \((1\pm\alpha)/2\) に制約されるため、通常の GMM2 より識別しやすいです。ただし \(\lambda=0\) では成分が一致し、\(\alpha\) は識別不能になります。
+
+ADN, BSN-FS, NTPN は混合モデルとは異なる形で二峰性と歪みを導入するため、通常のラベル交換問題は持ちません。ただし、特殊ケースや境界付近では尤度面が平坦になり、推定が不安定になることがあります。
+
+### 10.3 BIC 比較の限界
+
+BIC は正則モデルの漸近近似として導かれます。混合モデルや境界を含む分布族では、厳密な正則条件が満たされない場合があります。そのため、本実装における BIC は実用的なモデル比較指標であり、常に厳密な事後モデル確率の近似として解釈すべきではありません。
+
+---
+
+## 11. 実装との対応表
+
+| 理論要素 | 実装ファイル | 主な関数 |
+|---|---|---|
+| 標準正規・各分布の対数密度 | `distributions.py` | `normal_logpdf`, `gmm2_logpdf`, `abn_logpdf`, `adn_logpdf`, `bsn_fs_logpdf`, `ntpn_logpdf` |
+| モデル登録 | `registry.py` | `DistributionSpec`, `DISTRIBUTIONS` |
+| Normal / GMM2 推定 | `gmm_fit.py` | `fit_normal`, `fit_gmm2`, `_em_gmm2_once` |
+| ABN / ADN / BSN-FS / NTPN 推定 | `shape_fit.py` | `_fit_transformed_model`, `fit_abn`, `fit_adn`, `fit_bsn_fs`, `fit_ntpn` |
+| 一括推定 | `fit.py` | `fit_model`, `fit_all` |
+| 乱数生成 | `random_generators.py` | `generate_random_density`, `_sample_abn`, `_sample_adn`, `_independent_mh_sample` |
+| 評価指標 | `evaluate.py` | `aic`, `bic`, `integrated_squared_error`, `count_density_modes` |
+
+---
+
+## 12. 理論対応テストとして保持すべき性質
+
+以下は、理論と実装の対応を壊さないために継続的にテストすべき性質です。
+
+### 12.1 ADN
+
+\[
+f_{\mathrm{ADN}}(z;a,0)=\frac{1}{2}\{\phi(z-a)+\phi(z+a)\}.
+\]
+
+\[
+f_{\mathrm{ADN}}(z;0,\kappa)=2\phi(z)\Phi(\kappa z).
+\]
+
+### 12.2 ABN
+
+\[
+f_{\mathrm{ABN}}(y;\mu,\sigma,\lambda,\alpha)
+=\mathrm{GMM2}\left(
+\pi=\frac{1+\alpha}{2},
+\mu_1=\mu+\sigma\lambda,
+\sigma_1=\sigma,
+\mu_2=\mu-\sigma\lambda,
+\sigma_2=\sigma
+\right).
+\]
+
+\[
+E[Y]=\mu+\sigma\lambda\alpha.
+\]
+
+\[
+\operatorname{Var}(Y)=\sigma^2\{1+\lambda^2(1-\alpha^2)\}.
+\]
+
+### 12.3 BSN-FS
+
+\[
+f_{\mathrm{BSN\text{-}FS}}(z;0,\gamma)=s_\gamma(z).
+\]
+
+\[
+b_\gamma=\frac{\gamma^3+\gamma^{-3}}{\gamma+\gamma^{-1}}.
+\]
+
+### 12.4 NTPN
+
+\[
+f_{\mathrm{NTPN}}(z;0,\lambda)=g_\lambda(z).
+\]
+
+\[
+f_{\mathrm{NTPN}}(z;\alpha,0)
+=\frac{(1-\alpha z)^2+1}{\alpha^2+2}\phi(z).
+\]
+
+\[
+f_{\mathrm{NTPN}}(z;0,0)=\phi(z).
+\]
+
+\[
+f_{\mathrm{NTPN}}(z;\alpha,\lambda)
+=f_{\mathrm{NTPN}}(-z;-\alpha,\lambda).
+\]
+
+---
+
+## 13. 監査上の注意点
+
+### 13.1 「論文式の再現」と「実験用実装」の違い
+
+本実装は、各論文で導入された密度関数の主要部分を、フィット比較のために実装したものです。以下は含まれません。
+
+- ADN 論文の回帰モデル全体。
+- ADN 論文の観測情報行列や標準誤差推定の全再現。
+- ABN 論文の CDF、分位点、全モーメント、回帰診断の全再現。
+- AIMS NTPN 論文の信頼性関数、エントロピー、寿命解析指標の全再現。
+- BSN-FS 論文の Student-t 基底やベイズ推定部分。
+
+一方で、密度、対数尤度、主要特殊ケース、合成データ生成、最尤推定、モデル比較は、実験目的に必要な範囲で self-contained に定義されています。
+
+### 13.2 境界特殊ケースの扱い
+
+密度関数は理論上の境界値、例えば \(a=0\), \(\alpha=0\), \(\lambda=0\), \(\gamma=1\) に対応します。ただし、最適化内部では指数変換や双曲線正接変換を使うため、境界そのものには到達せず、非常に近い内部点として表現される場合があります。
+
+### 13.3 数値モード数の解釈
+
+`count_density_modes` は厳密なモード判定ではなく、描画格子上の視覚的診断です。モデル自体が二峰性を表現可能であっても、推定値や閾値次第で 1 峰と数えられることがあります。
+
+### 13.4 乱数生成の品質
+
+Normal, GMM2, ABN は直接サンプリングです。ADN は受容棄却法です。BSN-FS と NTPN は独立 Metropolis--Hastings 法です。後二者について、受理率、自己相関、有効サンプルサイズを厳密に管理したい場合は追加診断が必要です。現行実装はフィット品質のストレステスト用であり、高精度 MCMC 解析用の汎用サンプラーではありません。
+
+---
+
+## 14. 参考文献
+
+[ADN] Hugo S. Salinas, Guillermo Martínez-Flórez, Hassan S. Bakouch, Lamia Alyami, Wilson E. Caimanque, “Modeling Bimodal and Skewed Data: Asymmetric Double Normal Distribution with Applications in Regression”, *Symmetry*, 2025, 17(6), 942. DOI: 10.3390/sym17060942.
+
+[BSN-FS] Ricardo S. Ehlers, “A New Class of Skewed Bimodal Distributions”, arXiv:1512.03341, 2015.
+
+[ABN] “The Asymmetric Bimodal Normal Distribution: A Tractable Mixture Model for Skewed and Bimodal Data”, *Mathematics*, 2026, 14(5), 901.
+
+[NTPN] “The bimodal two-piece skew-normal distribution: Mathematical theory, reliability aging measures, and simulation-oriented decision analysis”, *AIMS Mathematics*, 2026, 11(1), 511–542.
