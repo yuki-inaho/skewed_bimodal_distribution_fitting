@@ -35,12 +35,6 @@ classifiers = [
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",
-    "pandas>=2.0",
-    "matplotlib>=3.8",
-    "nbformat>=5.9",
-    "nbclient>=0.8",
-    "ipython>=8.0",
-    "ipykernel>=6.29",
 ]
 
 [project.urls]
@@ -49,11 +43,29 @@ Repository = "https://github.com/yuki-inaho/skew_bimodal_distribution_fitting"
 Issues = "https://github.com/yuki-inaho/skew_bimodal_distribution_fitting/issues"
 
 [project.optional-dependencies]
+report = [
+    "pandas>=2.0",
+    "matplotlib>=3.8",
+]
+notebook = [
+    "pandas>=2.0",
+    "matplotlib>=3.8",
+    "nbformat>=5.9",
+    "nbclient>=0.8",
+    "ipython>=8.0",
+    "ipykernel>=6.29",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.8",
     "ty>=0.0.1a0",
     "radon>=6.0",
+    "pandas>=2.0",
+    "matplotlib>=3.8",
+    "nbformat>=5.9",
+    "nbclient>=0.8",
+    "ipython>=8.0",
+    "ipykernel>=6.29",
 ]
 
 [project.scripts]
@@ -64,16 +76,42 @@ bimodal-skewfit-random = "bimodal_skewfit.random_cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/bimodal_skewfit"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+    "/justfile",
+    "/docs",
+]
+exclude = [
+    "/outputs",
+    "/notebooks",
+    "/examples",
+    "/temp",
+    "/dist",
+    "/.venv",
+    "/.pytest_cache",
+    "/.ruff_cache",
+    "/.ty",
+    "/docs/workdoc_*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
-norecursedirs = ["temp", ".venv", ".git", "build", "dist", "*.egg-info"]
+norecursedirs = ["temp", ".venv", ".git", "build", "dist", "*.egg-info", "examples", "notebooks"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["notebooks/*.ipynb"]
+extend-exclude = ["examples/*.ipynb"]
 
 [tool.ruff.format]
 quote-style = "double"

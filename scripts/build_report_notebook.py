@@ -9,7 +9,7 @@ import nbformat
 from nbclient import NotebookClient
 from nbformat import NotebookNode
 
-NOTEBOOK_PATH = Path("notebooks/fitting_report.ipynb")
+NOTEBOOK_PATH = Path("examples/fitting_report.ipynb")
 
 
 def _markdown_cell(source: str) -> NotebookNode:
