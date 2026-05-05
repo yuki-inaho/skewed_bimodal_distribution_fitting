@@ -4,7 +4,7 @@
 
 ![fit summary overview](docs/fit_summary_overview.png)
 
-> 4 つの代表シナリオそれぞれに 6 モデル全部 (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットし、BIC 昇順で重ね描き。#1 (各シナリオの最良モデル) のみ太線。n=400, seed=20260503, max_iter=60。再生成は `uv run python scripts/build_overview_plot.py`。
+> 4 つの代表シナリオそれぞれに 6 モデル全部 (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットして重ね描き。**色とモデル名は全シナリオで固定** (`normal` 青, `gmm2` 橙, `abn` 緑, `adn` 赤, `bsn_fs` 紫, `ntpn` 茶) で、BIC ランキングに関係なく同じモデルは同じ色で追えます。シナリオごとの BIC 最良モデルだけ太線 + `(best)` を付与。n=400, seed=20260503, max_iter=60。再生成は `uv run python scripts/build_overview_plot.py`。
 
 ## ドキュメント
 
