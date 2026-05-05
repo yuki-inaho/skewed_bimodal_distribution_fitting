@@ -55,7 +55,7 @@
 | `notebook` | report + `nbformat`, `nbclient`, `ipython`, `ipykernel` | `scripts/build_report_notebook.py --execute` を使う |
 | `dev` | notebook + `pytest`, `ruff`, `ty`, `radon` | テスト・lint・型チェック・ベンチを含む全機能 |
 
-Hatchling の `[tool.hatch.build.targets.sdist]` で `outputs/`, `notebooks/`, `examples/`, `temp/`, `dist/`, `docs/workdoc_*` を sdist から除外しています。wheel には `src/bimodal_skewfit` のみが含まれます。
+Hatchling の `[tool.hatch.build.targets.sdist]` で `outputs/`, `notebooks/`, `examples/`, `temp/`, `dist/` を sdist から除外しています。wheel には `src/bimodal_skewfit` のみが含まれます。
 
 ビルド・配布物検証のコマンド:
 

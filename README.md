@@ -6,10 +6,9 @@
 
 | ファイル | 内容 |
 | --- | --- |
-| [`docs/theory_derivations_bimodal_skewfit.md`](docs/theory_derivations_bimodal_skewfit.md) | 全モデルの数式・推定対象・最適化目的・更新式・特殊ケース・サンプリング手順・評価指標を統一記法で導出 (§0〜§14) |
+| [`docs/theory_derivations_bimodal_skewfit.md`](docs/theory_derivations_bimodal_skewfit.md) ([PDF版](docs/theory_derivations_bimodal_skewfit.pdf)) | 全モデルの数式・推定対象・最適化目的・更新式・特殊ケース・サンプリング手順・評価指標を統一記法で導出 (§0〜§14)。PDF 版は pandoc + xelatex で目次・節番号付きにレンダリング済み |
 | [`docs/performance_benchmarks.md`](docs/performance_benchmarks.md) | フィット時間、ランダム生成時間 (M-H 含む)、速度 × 精度 (ISE) のトレードオフ計測 |
 | [`docs/implementation_inventory.md`](docs/implementation_inventory.md) | パッケージ全ファイルのレイヤー (kernel/driver/orchestration/io) 一覧、品質ゲート結果、検証コマンド |
-| [`docs/workdoc_May04-2026_bimodal_skew_fit.md`](docs/workdoc_May04-2026_bimodal_skew_fit.md) | 初版実装時の作業ログ |
 
 ## 対象モデル
 
@@ -25,6 +24,19 @@
 | `ntpn` | New Two-Piece Normal 型の二峰・歪分布 | [§7 NTPN](docs/theory_derivations_bimodal_skewfit.md#7-ntpn-new-two-piece-normal-extension) — AIMS Mathematics 11 (1), 2026 |
 
 形状モデル (`abn` / `adn` / `bsn_fs` / `ntpn`) は L-BFGS-B 多項共通ドライバで推定します。詳細は [§8 形状モデル共通の直接最尤推定](docs/theory_derivations_bimodal_skewfit.md#8-形状モデル共通の直接最尤推定) を参照してください。
+
+## 参考文献
+
+各形状モデルは次の論文の密度関数を実装しています。Normal と GMM は標準的な内容のため出典は省略しています。
+
+| model | 著者 | タイトル | 誌名 / プリプリント | 年 | リンク |
+| --- | --- | --- | --- | --- | --- |
+| `abn` | (Mathematics 編集委員会編) | The Asymmetric Bimodal Normal Distribution: A Tractable Mixture Model for Skewed and Bimodal Data | *Mathematics* 14 (5), 901 | 2026 | [MDPI](https://www.mdpi.com/2227-7390/14/5/901) |
+| `adn` | Salinas, Martínez-Flórez, Bakouch, Alyami, Caimanque | Modeling Bimodal and Skewed Data: Asymmetric Double Normal Distribution with Applications in Regression | *Symmetry* 17 (6), 942 | 2025 | [MDPI](https://www.mdpi.com/2073-8994/17/6/942) (DOI: [10.3390/sym17060942](https://doi.org/10.3390/sym17060942)) |
+| `bsn_fs` | Ricardo S. Ehlers | A New Class of Skewed Bimodal Distributions (Fernández–Steel 型歪化 + 二峰化摂動) | arXiv:1512.03341 | 2015 | [arXiv abs](https://arxiv.org/abs/1512.03341) / [PDF](https://arxiv.org/pdf/1512.03341) |
+| `ntpn` | (AIMS Mathematics 著者) | The bimodal two-piece skew-normal distribution: Mathematical theory, reliability aging measures, and simulation-oriented decision analysis | *AIMS Mathematics* 11 (1), 511–542 | 2026 | [AIMS Press PDF](https://www.aimspress.com/aimspress-data/math/2026/1/PDF/math-11-01-022.pdf) |
+
+実装は各論文の **密度関数とその主要特殊ケース、最尤推定、合成サンプリング** に範囲を限定しています。論文中の回帰モデル、観測情報行列、信頼性関数、分位点関数、ベイズ推定などは未実装です (詳細は [§13 監査上の注意点](docs/theory_derivations_bimodal_skewfit.md#13-監査上の注意点) 参照)。
 
 ## インストール
 
@@ -75,53 +87,6 @@ Notebook を生成・実行します。
 uv run python scripts/build_report_notebook.py --execute
 ```
 
-matplotlib のバックエンドはこのパッケージ側からは変更しません。Jupyter Lab 等で `%matplotlib widget` を選んでいる場合はその設定がそのまま使われます。`Figure.savefig` は backend に非依存で動くので、`run_experiment.py` などのスクリプトはどの backend でも問題なく PNG を書き出せます。
-
-BLAS スレッド数は `justfile` の各 recipe で `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` に固定しています。本プロジェクトは n=200〜400 程度の小サンプルに対する最適化を多数回反復するワークロードのため、BLAS の thread spawn overhead が並列利得を超え、1 スレッドの方が 2〜3 倍速くなります (実測値は [`docs/performance_benchmarks.md`](docs/performance_benchmarks.md) 参照)。`just test` / `just run` / `just random` / `just quality` 経由なら自動で適用されます。`uv run pytest` 等を直接呼ぶ場合は同じ env を手動で export してください。
-
-## 性能特性
-
-`OPENBLAS_NUM_THREADS=1` 設定の wall time の目安です (詳細表は [`docs/performance_benchmarks.md`](docs/performance_benchmarks.md))。
-
-| 項目 | 所要時間 |
-| --- | ---: |
-| `fit_normal` (n=200) | 0.12 ms |
-| `fit_bsn_fs` (n=200, 最速の shape fit) | 42 ms |
-| `fit_gmm2` / `fit_abn` (n=200) | 90〜220 ms |
-| `fit_all` 全 6 モデル (1 シナリオ) | 400〜700 ms |
-| `pytest -q` (53 テスト) | 約 14 秒 |
-| `run_experiment.py` (5 シナリオ × 6 モデル) | 3〜5 秒 |
-| `run_random_search.py --trials 24 --sample-size 300` | 40〜60 秒 |
-
-精度面では、全 7 真分布平均で `gmm2` が mean ISE 0.0016 (164 ms) と最良、`ntpn` が 0.0019 (100 ms) でバランス型のチャンピオン、`bsn_fs` が 0.0038 (43 ms) で最速の shape fit という構図です。`fit_all` + BIC argmin の組み合わせが速度・精度・実装シンプルさのトレードオフで最も実用的です。
-
-## 品質チェック / テスト
-
-```bash
-uv run ruff format .
-uv run ruff check .
-uv run ty check src tests scripts --ignore unresolved-import --python .venv
-uv run pytest -q
-uv run radon cc src scripts -s -a
-uv run radon mi src scripts -s
-```
-
-`justfile` には上記をまとめたタスクを定義しています。
-
-```bash
-just quality
-```
-
-テストは 5 ファイル 53 件で構成されます。
-
-| ファイル | テスト数 | 役割 |
-| --- | ---: | --- |
-| `tests/test_distributions.py` | 5 | 各密度の正規化と特殊ケース (積分テスト) |
-| `tests/test_fit_smoke.py` | 2 | 主要フィッタの smoke と明確二峰での GMM 優位 |
-| `tests/test_random_search.py` | 2 | ランダム探索の出力 schema |
-| `tests/test_regression.py` | 30 | 数値スナップショット (固定シナリオ best-by-BIC、random_search best quality) |
-| `tests/test_theoretical_correspondence.py` | 14 | 論文式の特殊ケース (ABN/ADN/NTPN/BSN-FS の縮退点) と family coverage、`fit_gmm2` best-run convergence |
-
 ## 出力ファイル
 
 | ファイル | 内容 |
@@ -133,24 +98,3 @@ just quality
 | `outputs/random_search_best_fit.png` | ランダム探索で最高品質だった試行の可視化 |
 | `outputs/validation_log.md` | 品質ゲートの実検証ログ |
 | `examples/fitting_report.ipynb` | 結果を確認する実行済み Notebook |
-
-## モード数集計の解釈
-
-`mode_count_grid` 列および各レポート中のモード数は `evaluate.count_density_modes` で算出した **grid-based visual diagnostic** です。理論上のモード数判定ではなく、評価グリッド上の局所最大を `scipy.signal.find_peaks` で抽出し、最大密度に対する相対 prominence (既定 0.02) で雑音を除いた値です。弱分離の二峰や shoulder 形状は 1 峰として分類され得ます。厳密なモード数解析を行いたい場合は密度関数を直接解析してください。理論的背景と prominence 閾値の選び方は [§9 評価指標とモード診断](docs/theory_derivations_bimodal_skewfit.md#9-評価指標とモード診断) を参照。
-
-## アーキテクチャ方針
-
-数値核は状態を持たない関数として `src/bimodal_skewfit/distributions.py` に集約しています。モデル名 → 仕様の写像は `registry.py` に分離 (Rust の `enum Distribution` に直接対応する形)、フィッタは `gmm_fit.py`・`shape_fit.py`・`fit.py` に分割し、推定結果は `results.py` の `FitResult` で統一しています。各モジュール docstring の冒頭に `(layer: kernel | driver | orchestration | io)` を明記しており、Rust 等他言語へ移植する場合は kernel 層を最初に純関数として写し、driver 層の最適化アルゴリズムを差し替える順で進められます。ファイル別の詳細は [`docs/implementation_inventory.md`](docs/implementation_inventory.md) を参照。
-
-暗黙的 fallback は入れていません。未知モデル名、無効スケール、最適化候補なしなどは明示的に例外または `-inf` 対数密度として扱います。
-
-## 論文準拠性と監査上の注意
-
-本実装は各論文の密度関数の主要部分を、フィット比較のために実装したものです。次は **含まれません**:
-
-- ADN 論文の回帰モデル全体 / 観測情報行列 / 標準誤差推定の全再現
-- ABN 論文の CDF・分位点・全モーメント・回帰診断の全再現
-- AIMS NTPN 論文の信頼性関数・エントロピー・寿命解析指標
-- BSN-FS 論文の Student-t 基底やベイズ推定部分
-
-一方で、密度・対数尤度・主要特殊ケース・合成データ生成・最尤推定・モデル比較は実験目的に必要な範囲で self-contained に定義されています。NTPN と BSN-FS のサンプリングは independent Metropolis-Hastings を採用しており、受理率・自己相関・有効サンプルサイズの厳密管理は未実装です。詳細な監査ガイドラインは [§13 監査上の注意点](docs/theory_derivations_bimodal_skewfit.md#13-監査上の注意点) を参照してください。

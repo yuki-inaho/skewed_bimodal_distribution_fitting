@@ -99,7 +99,6 @@ exclude = [
     "/.pytest_cache",
     "/.ruff_cache",
     "/.ty",
-    "/docs/workdoc_*",
 ]
 
 [tool.pytest.ini_options]
