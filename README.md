@@ -4,7 +4,7 @@
 
 ![fit summary overview](docs/fit_summary_overview.png)
 
-> 4 つの代表シナリオに対する 6 モデル一括フィット結果 (n=400, seed=20260503, max_iter=60, BIC top-3 表示)。再生成は `uv run python scripts/build_overview_plot.py`。
+> 4 つの代表シナリオそれぞれに 6 モデル全部 (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットし、BIC 昇順で重ね描き。#1 (各シナリオの最良モデル) のみ太線。n=400, seed=20260503, max_iter=60。再生成は `uv run python scripts/build_overview_plot.py`。
 
 ## ドキュメント
 
