@@ -2,6 +2,10 @@
 
 単峰・二峰・歪みを持つ 1 次元データに、6 モデル (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットして AIC・BIC・モード数・ISE で並べる Python ライブラリ。形状モデル 4 本は近年の論文 (Mathematics 2026 / Symmetry 2025 / arXiv 2015 / AIMS Mathematics 2026) の密度を統一記法で実装し、特殊ケースと数値スナップショットを 54 件のテストで自動検証しています。
 
+![fit summary overview](docs/fit_summary_overview.png)
+
+> 4 つの代表シナリオに対する 6 モデル一括フィット結果 (n=400, seed=20260503, max_iter=60, BIC top-3 表示)。再生成は `uv run python scripts/build_overview_plot.py`。
+
 ## ドキュメント
 
 | ファイル | 内容 |
@@ -9,6 +13,7 @@
 | [`docs/theory_derivations_bimodal_skewfit.md`](docs/theory_derivations_bimodal_skewfit.md) ([PDF版](docs/theory_derivations_bimodal_skewfit.pdf)) | 全モデルの数式・推定対象・最適化目的・更新式・特殊ケース・サンプリング手順・評価指標を統一記法で導出 (§0〜§14)。PDF 版は pandoc + xelatex で目次・節番号付きにレンダリング済み |
 | [`docs/performance_benchmarks.md`](docs/performance_benchmarks.md) | フィット時間、ランダム生成時間 (M-H 含む)、速度 × 精度 (ISE) のトレードオフ計測 |
 | [`docs/implementation_inventory.md`](docs/implementation_inventory.md) | パッケージ全ファイルのレイヤー (kernel/driver/orchestration/io) 一覧、品質ゲート結果、検証コマンド |
+| [`examples/fitting_report.ipynb`](examples/fitting_report.ipynb) | 実行済み Notebook。固定シナリオごとのフィット結果と密度オーバーレイ、ランダム探索の最高品質候補、ファミリ別ベスト一覧を可視化付きで載せています |
 
 ## 対象モデル
 
@@ -31,10 +36,10 @@
 
 | model | 著者 | タイトル | 誌名 / プリプリント | 年 | リンク |
 | --- | --- | --- | --- | --- | --- |
-| `abn` | (Mathematics 編集委員会編) | The Asymmetric Bimodal Normal Distribution: A Tractable Mixture Model for Skewed and Bimodal Data | *Mathematics* 14 (5), 901 | 2026 | [MDPI](https://www.mdpi.com/2227-7390/14/5/901) |
-| `adn` | Salinas, Martínez-Flórez, Bakouch, Alyami, Caimanque | Modeling Bimodal and Skewed Data: Asymmetric Double Normal Distribution with Applications in Regression | *Symmetry* 17 (6), 942 | 2025 | [MDPI](https://www.mdpi.com/2073-8994/17/6/942) (DOI: [10.3390/sym17060942](https://doi.org/10.3390/sym17060942)) |
-| `bsn_fs` | Ricardo S. Ehlers | A New Class of Skewed Bimodal Distributions (Fernández–Steel 型歪化 + 二峰化摂動) | arXiv:1512.03341 | 2015 | [arXiv abs](https://arxiv.org/abs/1512.03341) / [PDF](https://arxiv.org/pdf/1512.03341) |
-| `ntpn` | (AIMS Mathematics 著者) | The bimodal two-piece skew-normal distribution: Mathematical theory, reliability aging measures, and simulation-oriented decision analysis | *AIMS Mathematics* 11 (1), 511–542 | 2026 | [AIMS Press PDF](https://www.aimspress.com/aimspress-data/math/2026/1/PDF/math-11-01-022.pdf) |
+| `abn` | Bakouch et al. | The Asymmetric Bimodal Normal Distribution: A Tractable Mixture Model for Skewed and Bimodal Data | *Mathematics* 14 (5), 901 | 2026 | [MDPI](https://www.mdpi.com/2227-7390/14/5/901) |
+| `adn` | Salinas et al. | Modeling Bimodal and Skewed Data: Asymmetric Double Normal Distribution with Applications in Regression | *Symmetry* 17 (6), 942 | 2025 | [MDPI](https://www.mdpi.com/2073-8994/17/6/942) (DOI: [10.3390/sym17060942](https://doi.org/10.3390/sym17060942)) |
+| `bsn_fs` | Ehlers | A New Class of Skewed Bimodal Distributions (Fernández–Steel 型歪化 + 二峰化摂動) | arXiv:1512.03341 [math.ST] | 2015 | [arXiv abs](https://arxiv.org/abs/1512.03341) / [PDF](https://arxiv.org/pdf/1512.03341) |
+| `ntpn` | Elbarougy et al. | The bimodal two-piece skew-normal distribution: Mathematical theory, reliability aging measures, and simulation-oriented decision analysis | *AIMS Mathematics* 11 (1), 511–542 | 2026 | [AIMS Press PDF](https://www.aimspress.com/aimspress-data/math/2026/1/PDF/math-11-01-022.pdf) |
 
 実装は各論文の **密度関数とその主要特殊ケース、最尤推定、合成サンプリング** に範囲を限定しています。論文中の回帰モデル、観測情報行列、信頼性関数、分位点関数、ベイズ推定などは未実装です (詳細は [§13 監査上の注意点](docs/theory_derivations_bimodal_skewfit.md#13-監査上の注意点) 参照)。
 
