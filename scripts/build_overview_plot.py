@@ -34,12 +34,12 @@ SCENARIOS = (
 # where it lands in the BIC ranking.
 DISPLAY_ORDER = ("normal", "gmm2", "abn", "adn", "bsn_fs", "ntpn")
 MODEL_COLORS = {
-    "normal": "#1f77b4",   # blue
-    "gmm2":   "#ff7f0e",   # orange
-    "abn":    "#2ca02c",   # green
-    "adn":    "#d62728",   # red
-    "bsn_fs": "#9467bd",   # purple
-    "ntpn":   "#8c564b",   # brown
+    "normal": "#1f77b4",  # blue
+    "gmm2": "#ff7f0e",  # orange
+    "abn": "#2ca02c",  # green
+    "adn": "#d62728",  # red
+    "bsn_fs": "#9467bd",  # purple
+    "ntpn": "#8c564b",  # brown
 }
 SAMPLE_SIZE = 400
 SEED = 20260503

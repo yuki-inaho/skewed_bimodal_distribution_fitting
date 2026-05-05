@@ -1,7 +1,7 @@
 # 性能ベンチマーク
 
 `bimodal_skewfit` の各処理の実行時間と、フィット精度 (ISE) との
-トレードオフをまとめます。共有 ZIP の v5 ソースで取得した実測値です。
+トレードオフをまとめます。本文書の数値は、このリポジトリの同じ計測スクリプトで再取得できます。
 
 ## 計測条件
 
@@ -147,7 +147,7 @@ production では「`fit_all` + BIC argmin」が速度・精度・実装シン�
 
 | 処理 | 所要時間 | 備考 |
 | --- | --- | --- |
-| `pytest -q` (53 テスト) | 約 14 秒 | M-H サンプラと数値積分テストを含む |
+| `pytest -q` (61 テスト) | 約 14 秒 | M-H サンプラと数値積分テストを含む |
 | `run_experiment.py` (5 シナリオ × 6 モデル + plot/CSV) | 3〜5 秒 | sample_size=400, max_iter=60 |
 | `run_random_search.py --trials 24 --sample-size 300` | 40〜60 秒 | NTPN/BSN-FS の M-H 生成で +数十 ms |
 | `build_report_notebook.py --execute` | 5〜8 秒 | 既存 outputs を読むだけなので軽い |
@@ -155,9 +155,12 @@ production では「`fit_all` + BIC argmin」が速度・精度・実装シン�
 
 ## 5. 改善余地
 
-レビュアーから提案を受けた MCMC 診断 (acceptance rate, autocorrelation, ESS) は現状未実装です。
-`_independent_mh_sample` が `acceptance_count` / `total_proposed` を返す形に拡張し、
-`GeneratedDensity` に `sampler_diagnostics: dict[str, float] | None` を追加すれば、
-研究用途で生成品質を担保できます。本ベンチで採用した M-H サンプル品質は
-quad で求めた真の (μ, σ) と samples の (μ, σ) が両方とも 0.01 以内で一致することを別途確認済みなので、
-NTPN / BSN-FS の random_search における役割としては十分機能しています。
+レビュアーから提案を受けた MCMC 診断のうち、acceptance rate は実装済みです。
+`_independent_mh_sample` は thinned sample と受理率を返し、NTPN / BSN-FS の
+`GeneratedDensity.sampler_diagnostics["mh_acceptance_rate"]` に記録します。現状まだ
+自己相関、ESS、trace plot などの詳細診断は未実装です。
+
+本ベンチで採用した M-H サンプル品質は、quad で求めた真の (μ, σ) と samples の
+(μ, σ) が両方とも 0.01 以内で一致することを別途確認済みなので、NTPN / BSN-FS の
+random_search における役割としては十分機能しています。研究用途で生成品質をより
+厳密に担保する場合は、自己相関と ESS を追加してください。

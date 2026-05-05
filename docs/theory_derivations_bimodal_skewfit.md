@@ -1,6 +1,6 @@
 # 二峰・歪分布フィット手法の理論整理
 
-**対象実装:** `bimodal_skewed_uv_v4`  
+**対象実装:** current source tree
 **対象モデル:** Normal, Gaussian mixture `K=2`, ABN, ADN, BSN-FS, NTPN  
 **目的:** 合成データまたは実データに対し、単峰・二峰・歪みを持つ候補分布を最尤推定し、AIC/BIC、密度重ね合わせ、格子上のモード数、ISE で比較するための理論仕様を、実装と一対一対応する形で整理する。
 
@@ -1002,7 +1002,205 @@ f(z;\alpha,1)=\frac{1+\alpha z^2}{1+\alpha}\phi(z).
 
 標準正規に戻ります。
 
-### 6.5 対数尤度
+### 6.5 解析的モーメントと二峰係数
+
+標準形
+
+\[
+X\sim\mathrm{BSN\text{-}FS}(\alpha,\gamma),
+\qquad
+\alpha\ge0,\quad \gamma>0
+\]
+
+を考えます。まず Fernández--Steel 型に歪化した標準正規基底の raw moment を
+
+\[
+h_r(\gamma)=E[Z_\gamma^r]
+\]
+
+と置くと、BSN-FS 論文の一般式から
+
+\[
+h_r(\gamma)
+=
+\frac{\gamma^{r+1}+(-1)^r\gamma^{-(r+1)}}
+{\gamma+\gamma^{-1}}a_r
+\]
+
+です。ここで
+
+\[
+a_r=E[|N(0,1)|^r]
+=\frac{2^{r/2}\Gamma((r+1)/2)}{\sqrt{\pi}}
+\]
+
+です。特に
+
+\[
+h_1=\sqrt{\frac2\pi}(\gamma-\gamma^{-1}),
+\qquad
+h_2=\frac{\gamma^3+\gamma^{-3}}{\gamma+\gamma^{-1}},
+\]
+
+\[
+h_3=2\sqrt{\frac2\pi}
+\frac{\gamma^4-\gamma^{-4}}{\gamma+\gamma^{-1}},
+\qquad
+h_4=3\frac{\gamma^5+\gamma^{-5}}{\gamma+\gamma^{-1}},
+\]
+
+\[
+h_5=8\sqrt{\frac2\pi}
+\frac{\gamma^6-\gamma^{-6}}{\gamma+\gamma^{-1}},
+\qquad
+h_6=15\frac{\gamma^7+\gamma^{-7}}{\gamma+\gamma^{-1}}.
+\]
+
+BSN-FS はこの基底密度に
+
+\[
+\frac{1+\alpha x^2}{1+\alpha b_\gamma}
+\]
+
+を掛けた分布であり、\(b_\gamma=h_2(\gamma)\) です。したがって任意の整数 \(r\ge0\) について
+
+\[
+\boxed{
+m_r=E[X^r]
+=\frac{h_r(\gamma)+\alpha h_{r+2}(\gamma)}
+{1+\alpha h_2(\gamma)}
+}
+\]
+
+です。以後
+
+\[
+D=1+\alpha h_2,
+\qquad
+R_r=h_r+\alpha h_{r+2}
+\]
+
+と置けば、\(m_r=R_r/D\) です。平均と分散は
+
+\[
+\boxed{
+E[X]=\frac{R_1}{D}
+=\frac{h_1+\alpha h_3}{1+\alpha h_2}
+}
+\]
+
+\[
+\boxed{
+\operatorname{Var}(X)
+=\frac{R_2D-R_1^2}{D^2}
+=
+\frac{(h_2+\alpha h_4)(1+\alpha h_2)-(h_1+\alpha h_3)^2}
+{(1+\alpha h_2)^2}
+}
+\]
+
+です。中心 3 次・4 次モーメントは raw moment から
+
+\[
+\mu_3
+=
+\frac{R_3D^2-3R_1R_2D+2R_1^3}{D^3},
+\]
+
+\[
+\mu_4
+=
+\frac{R_4D^3-4R_1R_3D^2+6R_1^2R_2D-3R_1^4}{D^4}
+\]
+
+で得られます。ここで
+
+\[
+R_1=h_1+\alpha h_3,\quad
+R_2=h_2+\alpha h_4,\quad
+R_3=h_3+\alpha h_5,\quad
+R_4=h_4+\alpha h_6
+\]
+
+です。
+
+歪度、通常の尖度、Sarle 型の母集団版 bimodal coefficient は
+
+\[
+\gamma_1=\frac{\mu_3}{\mu_2^{3/2}},
+\qquad
+\beta_2=\frac{\mu_4}{\mu_2^2},
+\]
+
+\[
+\boxed{
+\operatorname{BC}_{\mathrm{BSN\text{-}FS}}
+=\frac{\mu_2^3+\mu_3^2}{\mu_2\mu_4}
+}
+\]
+
+です。ここで \(\mu_2=\operatorname{Var}(X)\) であり、\(\beta_2\) は超過尖度ではなく通常の尖度です。
+
+補足として、FS 歪化標準正規基底のモーメント母関数は
+
+\[
+M_\gamma(t)
+=
+\frac{2}{\gamma+\gamma^{-1}}
+\left[
+\gamma e^{\gamma^2t^2/2}\Phi(\gamma t)
++
+\gamma^{-1}e^{t^2/(2\gamma^2)}\Phi(-t/\gamma)
+\right]
+\]
+
+なので、BSN-FS のモーメント母関数は
+
+\[
+\boxed{
+M_X(t)=
+\frac{M_\gamma(t)+\alpha M_\gamma''(t)}
+{1+\alpha h_2(\gamma)}
+}
+\]
+
+と書けます。実装では \(h_r\) による有限式を使う方が単純で安定です。
+
+\(\gamma=1\) では分布は対称になり、
+
+\[
+h_1=h_3=h_5=0,\qquad h_2=1,\qquad h_4=3,\qquad h_6=15
+\]
+
+です。したがって
+
+\[
+E[X]=0,\qquad
+\operatorname{Var}(X)=\frac{1+3\alpha}{1+\alpha},
+\]
+
+\[
+\mu_4=\frac{3+15\alpha}{1+\alpha},
+\qquad
+\beta_2=
+\frac{3(1+5\alpha)(1+\alpha)}{(1+3\alpha)^2},
+\]
+
+\[
+\operatorname{BC}
+=
+\frac{(1+3\alpha)^2}{3(1+5\alpha)(1+\alpha)}.
+\]
+
+対称 BSN-FS では密度の形自体は \(\alpha>1/2\) で二峰化しますが、Sarle 型 BC が経験的閾値 \(5/9\) を超えるのは
+
+\[
+\alpha>3+\sqrt{10}\approx6.162
+\]
+
+の領域です。したがって BC は二峰性を検出するための補助診断であり、実際のモード数判定は密度の導関数または格子上の局所極大数で別途確認する必要があります。
+
+### 6.6 対数尤度
 
 \[
 D_\gamma=\gamma+\gamma^{-1}
@@ -1032,7 +1230,7 @@ D_\gamma=\gamma+\gamma^{-1}
 \right].
 \]
 
-### 6.6 スコアの導出
+### 6.7 スコアの導出
 
 解析的な閉形式更新式は得にくいため、実装は L-BFGS-B による直接最小化を行います。ただし、目的関数の構造を確認するために主要な導関数を記載します。
 
@@ -1120,7 +1318,7 @@ b_\gamma'
 
 を用いて連鎖律で求めます。
 
-### 6.7 BSN-FS の独立 Metropolis--Hastings 生成
+### 6.8 BSN-FS の独立 Metropolis--Hastings 生成
 
 実装のランダム探索では、BSN-FS 生成に独立 Metropolis--Hastings 法を使います。提案分布は \(\alpha=0\) の FS skew normal、すなわち
 
@@ -1154,7 +1352,7 @@ A(z,z^\star)=
 
 正規化定数 \(1+\alpha b_\gamma\) は比で相殺されます。
 
-### 6.8 実装の最適化パラメータ
+### 6.9 実装の最適化パラメータ
 
 内部パラメータは
 
@@ -1330,7 +1528,245 @@ f_{\mathrm{NTPN}}(z;\alpha,\lambda)
 
 が成り立ちます。
 
-### 7.5 対数尤度
+### 7.5 解析的モーメントと二峰係数
+
+標準形
+
+\[
+X\sim\mathrm{NTPN}(\alpha,\lambda),
+\qquad
+\alpha\in\mathbb{R},\quad \lambda\ge0
+\]
+
+を考えます。基底密度 \(g_\lambda\) に従う確率変数を \(Z\) と置きます。
+\(g_\lambda\) は \(N(\lambda,1)\) と \(N(-\lambda,1)\) の等重み混合なので対称であり、奇数次 raw moment は 0 です。偶数次については
+
+\[
+\tau_{2n}=E[Z^{2n}]
+=
+\sum_{j=0}^{n}
+\binom{2n}{2j}(2j-1)!!\,\lambda^{2n-2j},
+\qquad
+\tau_{2n+1}=0
+\]
+
+です。ただし \((-1)!!=1\) とします。
+
+NTPN は基底密度 \(g_\lambda\) に
+
+\[
+(1-\alpha x)^2+1=2-2\alpha x+\alpha^2x^2
+\]
+
+を掛けて正規化した密度なので、任意の整数 \(r\ge0\) について raw moment は
+
+\[
+\boxed{
+m_r=E[X^r]
+=
+\frac{
+2\tau_r-2\alpha\tau_{r+1}+\alpha^2\tau_{r+2}
+}{C}
+},
+\qquad
+C=2+\alpha^2(1+\lambda^2)
+\]
+
+です。これは AIMS 論文の一般モーメント式を、等重み正規混合の表現で有限和に簡約した形です。
+
+主要な偶数次基底モーメントを
+
+\[
+T_2=1+\lambda^2,
+\qquad
+T_4=3+6\lambda^2+\lambda^4,
+\qquad
+T_6=15+45\lambda^2+15\lambda^4+\lambda^6
+\]
+
+と置くと、最初の raw moment は
+
+\[
+m_1=-\frac{2\alpha T_2}{C},
+\qquad
+m_2=\frac{2T_2+\alpha^2T_4}{C},
+\]
+
+\[
+m_3=-\frac{2\alpha T_4}{C},
+\qquad
+m_4=\frac{2T_4+\alpha^2T_6}{C}
+\]
+
+です。したがって平均は
+
+\[
+\boxed{
+E[X]
+=
+-\frac{2\alpha(1+\lambda^2)}
+{2+\alpha^2(1+\lambda^2)}
+}
+\]
+
+です。分散は
+
+\[
+\operatorname{Var}(X)=m_2-m_1^2
+\]
+
+なので、
+
+\[
+\boxed{
+\operatorname{Var}(X)
+=
+\frac{
+(2T_2+\alpha^2T_4)C-4\alpha^2T_2^2
+}{C^2}
+}
+\]
+
+です。展開すると
+
+\[
+\operatorname{Var}(X)
+=
+\frac{
+4(1+\lambda^2)
++
+4\alpha^2(1+2\lambda^2)
++
+\alpha^4(1+\lambda^2)(3+6\lambda^2+\lambda^4)
+}{
+\{2+\alpha^2(1+\lambda^2)\}^2
+}
+\]
+
+です。
+
+中心 3 次・4 次モーメントは
+
+\[
+\mu_3=m_3-3m_1m_2+2m_1^3,
+\qquad
+\mu_4=m_4-4m_1m_3+6m_1^2m_2-3m_1^4
+\]
+
+であり、\(T_2,T_4,T_6,C\) を用いて明示すると
+
+\[
+\mu_3
+=
+\frac{
+-2\alpha T_4C^2
++
+6\alpha T_2(2T_2+\alpha^2T_4)C
+-
+16\alpha^3T_2^3
+}{C^3}
+\]
+
+\[
+\mu_4
+=
+\frac{
+(2T_4+\alpha^2T_6)C^3
+-
+16\alpha^2T_2T_4C^2
++
+24\alpha^2T_2^2(2T_2+\alpha^2T_4)C
+-
+48\alpha^4T_2^4
+}{C^4}
+\]
+
+です。歪度、通常の尖度、Sarle 型の母集団版 bimodal coefficient は
+
+\[
+\gamma_1=\frac{\mu_3}{\mu_2^{3/2}},
+\qquad
+\beta_2=\frac{\mu_4}{\mu_2^2},
+\]
+
+\[
+\boxed{
+\operatorname{BC}_{\mathrm{NTPN}}
+=\frac{\mu_2^3+\mu_3^2}{\mu_2\mu_4}
+}
+\]
+
+です。ここで \(\mu_2=\operatorname{Var}(X)\) であり、\(\beta_2\) は超過尖度ではなく通常の尖度です。
+
+補足として、基底 \(g_\lambda\) のモーメント母関数は
+
+\[
+M_g(t)=e^{t^2/2}\cosh(\lambda t)
+\]
+
+なので、
+
+\[
+\boxed{
+M_X(t)=
+\frac{2M_g(t)-2\alpha M_g'(t)+\alpha^2M_g''(t)}{C}
+}
+\]
+
+です。ここで
+
+\[
+M_g'(t)=e^{t^2/2}
+\{t\cosh(\lambda t)+\lambda\sinh(\lambda t)\},
+\]
+
+\[
+M_g''(t)=e^{t^2/2}
+\{(1+t^2+\lambda^2)\cosh(\lambda t)+2\lambda t\sinh(\lambda t)\}.
+\]
+
+実装では上記の有限和による raw moment から中心モーメントと BC を計算します。
+
+\(\alpha=0\) の特殊ケースでは基底の対称二正規混合になり、
+
+\[
+E[X]=0,
+\qquad
+\operatorname{Var}(X)=1+\lambda^2,
+\]
+
+\[
+\beta_2=
+\frac{3+6\lambda^2+\lambda^4}{(1+\lambda^2)^2},
+\qquad
+\operatorname{BC}
+=
+\frac{(1+\lambda^2)^2}{3+6\lambda^2+\lambda^4}.
+\]
+
+この等重み二正規混合は \(\lambda>1\) で二峰化しますが、BC が経験的閾値 \(5/9\) を超えるのは
+
+\[
+\lambda^2>\frac{3+\sqrt{15}}{2},
+\qquad
+\lambda\gtrsim1.854
+\]
+
+です。したがって、NTPN でも BC は弱い二峰性を見逃し得ます。
+
+AIMS 論文本文には同じ密度・正規化定数に基づく first four moments、分散、歪度、尖度の式が掲載されています。一方で、同論文の Table 1 の一部数値は密度式から直接計算した値と一致しません。例えば \((\alpha,\lambda)=(0.5,0.5)\) では、密度式から
+
+\[
+E[X]\approx -0.54054,
+\qquad
+\operatorname{Var}(X)\approx 1.28214,
+\qquad
+\gamma_1\approx 0.18192
+\]
+
+が得られます。したがって実装では表の数値ではなく、密度式および正規化定数から導出した式を基準にします。
+
+### 7.6 対数尤度
 
 \[
 A_i=(1-\alpha z_i)^2+1,
@@ -1357,7 +1793,7 @@ C=\alpha^2(\lambda^2+1)+2.
 
 実装では \(\log g_\lambda\) を `logsumexp(log_phi(z-lambda), log_phi(z+lambda)) - log(2)` として評価します。これは `cosh` の指数発散を避けるためです。
 
-### 7.6 スコア方程式
+### 7.7 スコア方程式
 
 本節では、本文書の統一記法
 
@@ -1463,7 +1899,7 @@ q_i:=\frac{\partial}{\partial z_i}\log f_{\mathrm{NTPN}}(z_i;\alpha,\lambda)
 
 スコア方程式 \(\nabla\ell(\theta)=0\) は非線形であり、閉形式解は得られません。そのため実装では数値最適化を用います。
 
-### 7.7 NTPN の独立 Metropolis--Hastings 生成
+### 7.8 NTPN の独立 Metropolis--Hastings 生成
 
 提案分布を \(\alpha=0\) の NTPN、すなわち TPN 基底
 
@@ -1501,7 +1937,7 @@ A_{\mathrm{MH}}(z,z^\star)
 
 実装では提案分布 \(g_\lambda\) から、等確率で \(+\lambda\) または \(-\lambda\) を平均とする正規乱数を生成します。
 
-### 7.8 実装の最適化パラメータ
+### 7.9 実装の最適化パラメータ
 
 内部パラメータは
 
@@ -1633,6 +2069,55 @@ BIC はパラメータ数への罰則が AIC より強く、標本サイズが�
 
 実装では、最大密度値に対する相対 prominence 閾値を設け、小さな数値的揺らぎを無視します。弱く分離した二峰、肩状の密度、モード境界付近の形状は、真に二峰的に見えても 1 峰と判定される可能性があります。
 
+### 9.4 Sarle 型 bimodal coefficient
+
+NTPN と BSN-FS の解析的モーメント API では、Sarle 型の母集団版 bimodal coefficient も返します。中心モーメントを
+
+\[
+\mu_k=E[(X-E[X])^k]
+\]
+
+と置くと、
+
+\[
+\gamma_1=\frac{\mu_3}{\mu_2^{3/2}},
+\qquad
+\beta_2=\frac{\mu_4}{\mu_2^2}
+\]
+
+です。ここで \(\beta_2\) は超過尖度ではなく通常の尖度です。Sarle 型 BC は
+
+\[
+\operatorname{BC}(X)=\frac{1+\gamma_1^2}{\beta_2}
+\]
+
+で定義され、同値に
+
+\[
+\operatorname{BC}(X)=
+\frac{\mu_2^3+\mu_3^2}{\mu_2\mu_4}
+\]
+
+です。経験的に \(5/9\approx0.555\) が閾値として参照されることがありますが、BC が高いことは二峰性の十分条件ではなく、低いことも非二峰性の十分条件ではありません。本実装では BC を補助診断とし、モード数の実務的な確認には格子上の局所極大数も併用します。
+
+標準形 \(X\) に対して
+
+\[
+Y=\mu+\sigma X,\qquad \sigma>0
+\]
+
+と置くと、
+
+\[
+E[Y]=\mu+\sigma E[X],
+\qquad
+\operatorname{Var}(Y)=\sigma^2\operatorname{Var}(X),
+\qquad
+\mu_k(Y)=\sigma^k\mu_k(X)
+\]
+
+です。したがって歪度、尖度、BC は位置尺度変換で不変です。実装の `ntpn_moments` と `bsn_fs_moments` は、標準形の raw moment を計算した後にこの変換則を適用します。
+
 ---
 
 ## 10. モデル間の包含関係と比較上の注意
@@ -1675,6 +2160,7 @@ BIC は正則モデルの漸近近似として導かれます。混合モデル�
 | 理論要素 | 実装ファイル | 主な関数 |
 |---|---|---|
 | 標準正規・各分布の対数密度 | `distributions.py` | `normal_logpdf`, `gmm2_logpdf`, `abn_logpdf`, `adn_logpdf`, `bsn_fs_logpdf`, `ntpn_logpdf` |
+| NTPN / BSN-FS の解析的モーメント | `moments.py` | `ntpn_moments`, `bsn_fs_moments`, `ntpn_standard_raw_moment`, `bsn_fs_standard_raw_moment` |
 | モデル登録 | `registry.py` | `DistributionSpec`, `DISTRIBUTIONS` |
 | Normal / GMM2 推定 | `gmm_fit.py` | `fit_normal`, `fit_gmm2`, `_em_gmm2_once` |
 | ABN / ADN / BSN-FS / NTPN 推定 | `shape_fit.py` | `_fit_transformed_model`, `fit_abn`, `fit_adn`, `fit_bsn_fs`, `fit_ntpn` |
@@ -1729,6 +2215,13 @@ f_{\mathrm{BSN\text{-}FS}}(z;0,\gamma)=s_\gamma(z).
 b_\gamma=\frac{\gamma^3+\gamma^{-3}}{\gamma+\gamma^{-1}}.
 \]
 
+\[
+\gamma=1
+\quad\Rightarrow\quad
+E[X]=0,\quad
+\operatorname{Var}(X)=\frac{1+3\alpha}{1+\alpha}.
+\]
+
 ### 12.4 NTPN
 
 \[
@@ -1747,6 +2240,13 @@ f_{\mathrm{NTPN}}(z;0,0)=\phi(z).
 \[
 f_{\mathrm{NTPN}}(z;\alpha,\lambda)
 =f_{\mathrm{NTPN}}(-z;-\alpha,\lambda).
+\]
+
+\[
+\alpha=0
+\quad\Rightarrow\quad
+E[X]=0,\quad
+\operatorname{Var}(X)=1+\lambda^2.
 \]
 
 ---

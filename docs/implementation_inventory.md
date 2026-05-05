@@ -1,4 +1,4 @@
-# 実装物一覧 (v4)
+# 実装物一覧 (current source tree)
 
 ## 1. パッケージ構成
 
@@ -7,6 +7,7 @@
 | `pyproject.toml` | `uv` 用プロジェクト定義、依存関係、Ruff/pytest/ty 設定 | 設定 |
 | `justfile` | セットアップ、品質チェック、固定実験、ランダム探索、Notebook 生成タスク | 設定 |
 | `src/bimodal_skewfit/distributions.py` | 正規、GMM2、ABN、ADN、BSN-FS、NTPN の対数密度カーネル | kernel |
+| `src/bimodal_skewfit/moments.py` | NTPN / BSN-FS の解析的モーメントと Sarle 型 bimodal coefficient API | kernel |
 | `src/bimodal_skewfit/registry.py` | `DistributionSpec` と `DISTRIBUTIONS` 名前-spec 辞書 (Rust の `enum Distribution` 相当) | kernel |
 | `src/bimodal_skewfit/results.py` | `FitResult` と尤度・初期値補助関数 | kernel |
 | `src/bimodal_skewfit/evaluate.py` | AIC/BIC、grid-based モード数、評価グリッド、ISE | kernel |
@@ -17,7 +18,7 @@
 | `src/bimodal_skewfit/random_generators.py` | 7 family のランダム分布生成 (NTPN/BSN-FS は M-H サンプラ) | driver |
 | `src/bimodal_skewfit/experiment.py` | 固定シナリオの実験オーケストレーション | orchestration |
 | `src/bimodal_skewfit/random_search.py` | ランダム探索、品質スコアリング、Markdown レポート | orchestration |
-| `src/bimodal_skewfit/plotting.py` | ヒストグラム・密度 overlay 図の生成 (matplotlib Agg 強制) | io |
+| `src/bimodal_skewfit/plotting.py` | ヒストグラム・密度 overlay 図の生成 (matplotlib backend は変更しない) | io |
 | `src/bimodal_skewfit/cli.py` | 固定実験 CLI | io |
 | `src/bimodal_skewfit/random_cli.py` | ランダム探索 CLI | io |
 | `scripts/run_experiment.py` | 固定実験実行ラッパー | io |
@@ -25,10 +26,11 @@
 | `scripts/build_report_notebook.py` | 実行済み Notebook 生成スクリプト | io |
 | `tests/test_distributions.py` | 密度の正規化・特殊ケース単体テスト | テスト |
 | `tests/test_fit_smoke.py` | 主要フィッタの smoke test と明確二峰 GMM 検証 | テスト |
+| `tests/test_moments.py` | NTPN / BSN-FS の解析的モーメント API と数値積分照合 | テスト |
 | `tests/test_random_search.py` | ランダム生成・ランダム探索出力テスト | テスト |
 | `tests/test_regression.py` | 数値スナップショット (固定シナリオ best-by-BIC、ランダム探索 best quality) | テスト |
 | `tests/test_theoretical_correspondence.py` | ADN/ABN/NTPN/BSN-FS の特殊ケース、family coverage、`fit_gmm2` best-run convergence | テスト |
-| `notebooks/fitting_report.ipynb` | 実行済み Notebook | io |
+| `examples/fitting_report.ipynb` | 実行済み Notebook | io |
 | `outputs/` | CSV、Markdown、PNG の実験成果物 | io |
 
 ## 2. 実装済みモデル
@@ -88,10 +90,10 @@ uv run python scripts/build_report_notebook.py --execute
 
 | 観点 | 結果 |
 | --- | --- |
-| pytest | 54 passed (5 + 2 + 2 + 31 + 14) |
+| pytest | 61 passed (5 + 2 + 7 + 2 + 30 + 15) |
 | Ruff format / check | passed (rules: B, C4, E, F, I, RET, SIM, UP, ANN, N, RUF, PERF, PIE, TID, ARG, NPY) |
 | ty static analysis | passed |
-| radon cyclomatic complexity | average A (1.97)、93 blocks、最大 B (CC=7) |
+| radon cyclomatic complexity | average A (2.12)、110 blocks、最大 B (CC=7) |
 | radon maintainability index | all files A |
 
 ## 6. 設計上の注意

@@ -3,8 +3,8 @@
 The package is layered into four tiers, marked in each module's docstring:
 
 * ``kernel`` — pure math (:mod:`distributions`, :mod:`evaluate`,
-  :mod:`results`, :mod:`registry`). No RNG, no I/O. Port-first targets for a
-  Rust rewrite.
+  :mod:`moments`, :mod:`results`, :mod:`registry`). No RNG, no I/O. Port-first
+  targets for a Rust rewrite.
 * ``driver`` — fitters and data factories that consume an explicit RNG seed
   but never touch disk (:mod:`fit`, :mod:`gmm_fit`, :mod:`shape_fit`,
   :mod:`simulate`, :mod:`random_generators`).
@@ -21,6 +21,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from .fit import fit_all, fit_model
+from .moments import MomentSummary, bsn_fs_moments, ntpn_moments
 from .registry import DISTRIBUTIONS
 from .results import FitResult
 
@@ -39,8 +40,11 @@ except PackageNotFoundError:  # pragma: no cover
 
 __all__ = [
     "FitResult",
+    "MomentSummary",
     "__version__",
+    "bsn_fs_moments",
     "fit_all",
     "fit_model",
     "list_models",
+    "ntpn_moments",
 ]
