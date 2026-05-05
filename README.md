@@ -1,6 +1,6 @@
 # bimodal-skewfit
 
-単峰・二峰・歪みを持つ 1 次元データに、6 モデル (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットして AIC・BIC・モード数・ISE で並べる Python ライブラリ。形状モデル 4 本は近年の論文 (Mathematics 2026 / Symmetry 2025 / arXiv 2015 / AIMS Mathematics 2026) の密度を統一記法で実装し、特殊ケースと数値スナップショットを 54 件のテストで自動検証しています。
+単峰・二峰・歪みを持つ 1 次元データに、6 モデル (`normal` / `gmm2` / `abn` / `adn` / `bsn_fs` / `ntpn`) を一括フィットする Python ライブラリ。
 
 ![fit summary overview](docs/fit_summary_overview.png)
 
